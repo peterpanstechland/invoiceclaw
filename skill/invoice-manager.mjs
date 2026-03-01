@@ -21,7 +21,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, existsSync, copyFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdirSync, existsSync, copyFileSync, writeFileSync, readFileSync, appendFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename, extname } from 'node:path';
 import { homedir } from 'node:os';
 import { execSync } from 'node:child_process';
@@ -102,18 +102,29 @@ function copyInvoiceFile(sourcePath, invoiceDate) {
   return destPath;
 }
 
+const CONSUMED_FILE = join(DATA_DIR, '.consumed-media');
+
+function loadConsumed() {
+  if (!existsSync(CONSUMED_FILE)) return new Set();
+  return new Set(readFileSync(CONSUMED_FILE, 'utf-8').split('\n').filter(Boolean));
+}
+
+function markConsumed(filename) {
+  mkdirSync(dirname(CONSUMED_FILE), { recursive: true });
+  appendFileSync(CONSUMED_FILE, filename + '\n');
+}
+
 function findLatestMedia() {
   const mediaDir = join(homedir(), '.openclaw', 'media', 'inbound');
   if (!existsSync(mediaDir)) return null;
   try {
+    const consumed = loadConsumed();
     const files = readdirSync(mediaDir)
+      .filter(f => !consumed.has(f) && statSync(join(mediaDir, f)).isFile())
       .map(f => ({ name: f, mtime: statSync(join(mediaDir, f)).mtimeMs }))
       .sort((a, b) => b.mtime - a.mtime);
     if (files.length === 0) return null;
-    const newest = files[0];
-    const ageSeconds = (Date.now() - newest.mtime) / 1000;
-    if (ageSeconds > 300) return null;
-    return join(mediaDir, newest.name);
+    return join(mediaDir, files[0].name);
   } catch { return null; }
 }
 
@@ -126,7 +137,10 @@ function addInvoice(jsonStr, filePath) {
   const sourceFile = filePath || findLatestMedia();
   if (sourceFile) {
     const savedPath = copyInvoiceFile(sourceFile, data.invoice_date);
-    if (savedPath) data.file_path = savedPath;
+    if (savedPath) {
+      data.file_path = savedPath;
+      markConsumed(basename(sourceFile));
+    }
   }
 
   if (data.extra_fields && typeof data.extra_fields === 'object') {
