@@ -3,268 +3,257 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>InvoiceClaw - 发票管理</title>
+  <title>InvoiceClaw</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <style>
     [v-cloak] { display: none; }
-    .fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
-    .fade-enter-from, .fade-leave-to { opacity: 0; }
     body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
-    .glass { background: rgba(255,255,255,0.8); backdrop-filter: blur(12px); }
   </style>
   <script>
     tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: { 50:'#eff6ff', 100:'#dbeafe', 200:'#bfdbfe', 500:'#3b82f6', 600:'#2563eb', 700:'#1d4ed8' }
-          }
-        }
-      }
+      theme: { extend: { colors: {
+        brand: { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8' }
+      }}}
     }
   </script>
 </head>
 <body class="bg-gray-50 min-h-screen">
 <div id="app" v-cloak>
-  <!-- Sidebar -->
   <div class="flex h-screen">
+    <!-- Sidebar -->
     <nav class="w-56 bg-white border-r border-gray-200 flex flex-col py-4 px-3 shrink-0">
       <div class="flex items-center gap-2 px-2 mb-6">
         <span class="text-2xl">📊</span>
         <span class="font-bold text-lg text-gray-800">InvoiceClaw</span>
       </div>
       <div class="space-y-1 flex-1">
-        <button v-for="item in navItems" :key="item.id"
-          @click="currentView = item.id"
+        <button v-for="item in navItems" :key="item.id" @click="currentView = item.id"
           :class="['w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors',
             currentView === item.id ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
-          {{ item.icon }} {{ item.label }}
+          {{ item.icon }} {{ t(item.labelKey) }}
         </button>
       </div>
-      <div class="text-xs text-gray-400 px-2 mt-4">InvoiceClaw v1.0</div>
+      <div class="px-2 mt-4 flex items-center justify-between">
+        <span class="text-xs text-gray-400">v1.1</span>
+        <button @click="toggleLang" class="text-xs px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50">
+          {{ locale === 'zh' ? 'EN' : '中文' }}
+        </button>
+      </div>
     </nav>
 
     <!-- Main -->
     <main class="flex-1 overflow-auto">
-      <!-- Dashboard -->
+
+      <!-- ========== Dashboard ========== -->
       <div v-if="currentView === 'dashboard'" class="p-6 max-w-6xl mx-auto">
-        <h1 class="text-2xl font-bold text-gray-800 mb-6">Dashboard</h1>
+        <h1 class="text-2xl font-bold text-gray-800 mb-6">{{ t('nav.dashboard') }}</h1>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
-            <div class="text-sm text-gray-500 mb-1">Total Invoices</div>
+            <div class="text-sm text-gray-500 mb-1">{{ t('dash.total') }}</div>
             <div class="text-2xl font-bold text-gray-800">{{ dashStats.totalCount }}</div>
           </div>
           <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
-            <div class="text-sm text-gray-500 mb-1">进项总额</div>
+            <div class="text-sm text-gray-500 mb-1">{{ t('dash.inbound') }}</div>
             <div class="text-2xl font-bold text-blue-600">¥{{ fmtAmt(dashStats.inboundTotal) }}</div>
           </div>
           <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
-            <div class="text-sm text-gray-500 mb-1">销项总额</div>
+            <div class="text-sm text-gray-500 mb-1">{{ t('dash.outbound') }}</div>
             <div class="text-2xl font-bold text-green-600">¥{{ fmtAmt(dashStats.outboundTotal) }}</div>
           </div>
           <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
-            <div class="text-sm text-gray-500 mb-1">未报销</div>
+            <div class="text-sm text-gray-500 mb-1">{{ t('dash.unreimbursed') }}</div>
             <div class="text-2xl font-bold text-orange-500">¥{{ fmtAmt(dashStats.unreimbursedTotal) }}</div>
           </div>
         </div>
-
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
-            <h3 class="font-semibold text-gray-700 mb-3">By Type</h3>
-            <div v-for="t in dashStats.byType" :key="t.invoice_type" class="flex justify-between py-1.5 border-b border-gray-50">
-              <span class="text-sm text-gray-600">{{ typeLabel(t.invoice_type) }}</span>
-              <span class="text-sm font-medium">{{ t.count }} | ¥{{ fmtAmt(t.total) }}</span>
+            <h3 class="font-semibold text-gray-700 mb-3">{{ t('dash.byType') }}</h3>
+            <div v-for="item in dashStats.byType" :key="item.invoice_type" class="flex justify-between py-1.5 border-b border-gray-50">
+              <span class="text-sm text-gray-600">{{ typeLabel(item.invoice_type) }}</span>
+              <span class="text-sm font-medium">{{ item.count }} | ¥{{ fmtAmt(item.total) }}</span>
             </div>
           </div>
           <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
-            <h3 class="font-semibold text-gray-700 mb-3">By Category</h3>
+            <h3 class="font-semibold text-gray-700 mb-3">{{ t('dash.byCategory') }}</h3>
             <div v-for="c in dashStats.byCategory" :key="c.category" class="flex justify-between py-1.5 border-b border-gray-50">
-              <span class="text-sm text-gray-600">{{ c.category || 'uncategorized' }}</span>
+              <span class="text-sm text-gray-600">{{ c.category || t('common.uncategorized') }}</span>
               <span class="text-sm font-medium">{{ c.count }} | ¥{{ fmtAmt(c.total) }}</span>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Invoice List -->
+      <!-- ========== Invoices ========== -->
       <div v-if="currentView === 'invoices'" class="p-6 max-w-7xl mx-auto">
         <div class="flex items-center justify-between mb-4">
-          <h1 class="text-2xl font-bold text-gray-800">Invoices</h1>
-          <button @click="showUpload = true" class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">
-            + Upload
+          <h1 class="text-2xl font-bold text-gray-800">{{ t('nav.invoices') }}</h1>
+          <button @click="showUpload = true" class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">
+            + {{ t('inv.upload') }}
           </button>
         </div>
 
-        <!-- Filters -->
         <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm mb-4 flex flex-wrap gap-3">
-          <input v-model="filters.search" @input="debouncedFetch" placeholder="Search..." class="border rounded-lg px-3 py-1.5 text-sm w-40">
+          <input v-model="filters.search" @input="debouncedFetch" :placeholder="t('inv.search')" class="border rounded-lg px-3 py-1.5 text-sm w-40">
           <select v-model="filters.month" @change="fetchInvoices" class="border rounded-lg px-3 py-1.5 text-sm">
-            <option value="">All months</option>
+            <option value="">{{ t('inv.allMonths') }}</option>
             <option v-for="m in months" :key="m" :value="m">{{ m }}</option>
           </select>
           <select v-model="filters.type" @change="fetchInvoices" class="border rounded-lg px-3 py-1.5 text-sm">
-            <option value="">All types</option>
-            <option v-for="(l,k) in typeLabels" :key="k" :value="k">{{ l }}</option>
+            <option value="">{{ t('inv.allTypes') }}</option>
+            <option v-for="(l,k) in typeLabelsMap" :key="k" :value="k">{{ l }}</option>
           </select>
           <select v-model="filters.direction" @change="fetchInvoices" class="border rounded-lg px-3 py-1.5 text-sm">
-            <option value="">All directions</option>
-            <option value="inbound">进项</option>
-            <option value="outbound">销项</option>
+            <option value="">{{ t('inv.allDirections') }}</option>
+            <option value="inbound">{{ t('dir.inbound') }}</option>
+            <option value="outbound">{{ t('dir.outbound') }}</option>
           </select>
           <select v-model="filters.reimbursement" @change="fetchInvoices" class="border rounded-lg px-3 py-1.5 text-sm">
-            <option value="">All status</option>
-            <option value="unreimbursed">未报销</option>
-            <option value="submitted">已提交</option>
-            <option value="reimbursed">已报销</option>
-            <option value="rejected">被驳回</option>
+            <option value="">{{ t('inv.allStatus') }}</option>
+            <option value="unreimbursed">{{ t('reimb.unreimbursed') }}</option>
+            <option value="submitted">{{ t('reimb.submitted') }}</option>
+            <option value="reimbursed">{{ t('reimb.reimbursed') }}</option>
+            <option value="rejected">{{ t('reimb.rejected') }}</option>
           </select>
-          <button @click="resetFilters" class="text-sm text-gray-500 hover:text-gray-700">Reset</button>
+          <button @click="resetFilters" class="text-sm text-gray-500 hover:text-gray-700">{{ t('common.reset') }}</button>
         </div>
 
-        <!-- Table -->
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
           <table class="w-full">
             <thead class="bg-gray-50">
               <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Direction</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">File</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reimb.</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ t('col.type') }}</th>
+                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ t('col.direction') }}</th>
+                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ t('col.amount') }}</th>
+                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ t('col.vendor') }}</th>
+                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ t('col.buyer') }}</th>
+                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ t('col.date') }}</th>
+                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ t('col.file') }}</th>
+                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ t('col.reimb') }}</th>
+                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ t('col.actions') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
               <tr v-for="inv in invoices" :key="inv.id" class="hover:bg-gray-50 transition-colors">
-                <td class="px-4 py-3 text-sm text-gray-600">#{{ inv.id }}</td>
-                <td class="px-4 py-3 text-sm">
-                  <span class="px-2 py-0.5 rounded-full text-xs font-medium"
-                    :class="typeBadge(inv.invoice_type)">{{ typeLabel(inv.invoice_type) }}</span>
+                <td class="px-3 py-3 text-sm text-gray-600">#{{ inv.id }}</td>
+                <td class="px-3 py-3 text-sm">
+                  <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="typeBadge(inv.invoice_type)">{{ typeLabel(inv.invoice_type) }}</span>
                 </td>
-                <td class="px-4 py-3 text-sm">
-                  <span :class="inv.direction==='inbound' ? 'text-blue-600' : 'text-green-600'" class="font-medium">
-                    {{ inv.direction === 'inbound' ? '进项' : '销项' }}
-                  </span>
+                <td class="px-3 py-3 text-sm">
+                  <span :class="inv.direction==='inbound'?'text-blue-600':'text-green-600'" class="font-medium">{{ dirLabel(inv.direction) }}</span>
                 </td>
-                <td class="px-4 py-3 text-sm font-medium text-gray-800">¥{{ fmtAmt(inv.amount) }}</td>
-                <td class="px-4 py-3 text-sm text-gray-600 max-w-[200px] truncate">{{ inv.vendor_name || '-' }}</td>
-                <td class="px-4 py-3 text-sm text-gray-500">{{ inv.invoice_date || '-' }}</td>
-                <td class="px-4 py-3 text-sm">
+                <td class="px-3 py-3 text-sm font-medium text-gray-800">¥{{ fmtAmt(inv.amount) }}</td>
+                <td class="px-3 py-3 text-sm text-gray-600 max-w-[160px] truncate">{{ inv.vendor_name || '-' }}</td>
+                <td class="px-3 py-3 text-sm text-gray-600 max-w-[160px] truncate">{{ inv.buyer_name || '-' }}</td>
+                <td class="px-3 py-3 text-sm text-gray-500">{{ inv.invoice_date || '-' }}</td>
+                <td class="px-3 py-3 text-sm">
                   <a v-if="inv.file_path" :href="'/api/invoices/'+inv.id+'/file'" download
-                    class="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 rounded-md text-xs font-medium hover:bg-green-100 transition-colors">
+                    class="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 rounded-md text-xs font-medium hover:bg-green-100">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                    Download
+                    {{ t('common.download') }}
                   </a>
-                  <button v-else @click="triggerAttach(inv)" class="inline-flex items-center gap-1 px-2 py-1 bg-gray-50 text-gray-400 rounded-md text-xs hover:bg-gray-100 hover:text-gray-600 transition-colors">
+                  <button v-else @click="triggerAttach(inv)" class="inline-flex items-center gap-1 px-2 py-1 bg-gray-50 text-gray-400 rounded-md text-xs hover:bg-gray-100 hover:text-gray-600">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
-                    Attach
+                    {{ t('common.attach') }}
                   </button>
                 </td>
-                <td class="px-4 py-3">
-                  <button @click="toggleReimburse(inv)"
-                    :class="['px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer transition-colors',
-                      reimbBadge(inv.reimbursement_status)]">
+                <td class="px-3 py-3">
+                  <button @click="toggleReimburse(inv)" :class="['px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer transition-colors', reimbBadge(inv.reimbursement_status)]">
                     {{ reimbLabel(inv.reimbursement_status) }}
                   </button>
                 </td>
-                <td class="px-4 py-3 text-sm">
+                <td class="px-3 py-3 text-sm">
                   <div class="flex gap-1">
-                    <button @click="viewInvoice(inv)" class="p-1.5 rounded hover:bg-gray-100" title="View details">
+                    <button @click="viewInvoice(inv)" class="p-1.5 rounded hover:bg-gray-100" :title="t('common.view')">
                       <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                     </button>
-                    <button @click="deleteInv(inv)" class="p-1.5 rounded hover:bg-red-50" title="Delete">
+                    <button @click="deleteInv(inv)" class="p-1.5 rounded hover:bg-red-50" :title="t('common.delete')">
                       <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                     </button>
                   </div>
                 </td>
               </tr>
-              <tr v-if="invoices.length === 0">
-                <td colspan="9" class="px-4 py-12 text-center text-gray-400">No invoices found</td>
+              <tr v-if="invoices.length===0">
+                <td colspan="10" class="px-4 py-12 text-center text-gray-400">{{ t('inv.empty') }}</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <!-- Pagination -->
         <div v-if="totalPages > 1" class="flex justify-center gap-2 mt-4">
-          <button v-for="p in totalPages" :key="p" @click="filters.page = p; fetchInvoices()"
-            :class="['px-3 py-1 rounded text-sm', filters.page === p ? 'bg-brand-600 text-white' : 'bg-white border hover:bg-gray-50']">
-            {{ p }}
-          </button>
+          <button v-for="p in totalPages" :key="p" @click="filters.page=p;fetchInvoices()"
+            :class="['px-3 py-1 rounded text-sm', filters.page===p?'bg-brand-600 text-white':'bg-white border hover:bg-gray-50']">{{ p }}</button>
         </div>
       </div>
 
       <!-- Upload Modal -->
       <div v-if="showUpload" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showUpload=false">
         <div class="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl">
-          <h2 class="text-lg font-bold text-gray-800 mb-4">Upload Invoice</h2>
+          <h2 class="text-lg font-bold text-gray-800 mb-4">{{ t('inv.upload') }}</h2>
           <form @submit.prevent="submitUpload" class="space-y-3">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">File</label>
+              <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('col.file') }}</label>
               <div class="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center hover:border-brand-300 transition-colors"
                 @dragover.prevent @drop.prevent="handleDrop">
                 <input type="file" ref="fileInput" @change="handleFileSelect" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" class="hidden">
                 <div v-if="!uploadForm.file" @click="$refs.fileInput.click()" class="cursor-pointer">
                   <div class="text-gray-400 text-3xl mb-2">📎</div>
-                  <div class="text-sm text-gray-500">Drop file here or click to browse</div>
+                  <div class="text-sm text-gray-500">{{ t('inv.dropFile') }}</div>
                 </div>
                 <div v-else class="text-sm text-gray-700">{{ uploadForm.file.name }} ({{ (uploadForm.file.size/1024).toFixed(1) }}KB)</div>
               </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('col.type') }}</label>
                 <select v-model="uploadForm.invoice_type" required class="w-full border rounded-lg px-3 py-2 text-sm">
-                  <option v-for="(l,k) in typeLabels" :key="k" :value="k">{{ l }}</option>
+                  <option v-for="(l,k) in typeLabelsMap" :key="k" :value="k">{{ l }}</option>
                 </select>
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Direction</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('col.direction') }}</label>
                 <select v-model="uploadForm.direction" required class="w-full border rounded-lg px-3 py-2 text-sm">
-                  <option value="inbound">进项 (Inbound)</option>
-                  <option value="outbound">销项 (Outbound)</option>
+                  <option value="inbound">{{ t('dir.inbound') }}</option>
+                  <option value="outbound">{{ t('dir.outbound') }}</option>
                 </select>
               </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Amount (¥)</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('col.amount') }} (¥)</label>
                 <input v-model="uploadForm.amount" type="number" step="0.01" required class="w-full border rounded-lg px-3 py-2 text-sm">
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('col.date') }}</label>
                 <input v-model="uploadForm.invoice_date" type="date" class="w-full border rounded-lg px-3 py-2 text-sm">
               </div>
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
-              <input v-model="uploadForm.vendor_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="开票方名称">
+              <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('col.vendor') }}</label>
+              <input v-model="uploadForm.vendor_name" class="w-full border rounded-lg px-3 py-2 text-sm">
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('inv.invoiceNo') }}</label>
                 <input v-model="uploadForm.invoice_number" class="w-full border rounded-lg px-3 py-2 text-sm">
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('inv.category') }}</label>
                 <select v-model="uploadForm.category" class="w-full border rounded-lg px-3 py-2 text-sm">
-                  <option value="">Select...</option>
+                  <option value="">{{ t('common.select') }}...</option>
                   <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
                 </select>
               </div>
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-              <input v-model="uploadForm.notes" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="备注">
+              <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('inv.notes') }}</label>
+              <input v-model="uploadForm.notes" class="w-full border rounded-lg px-3 py-2 text-sm">
             </div>
             <div class="flex justify-end gap-2 pt-2">
-              <button type="button" @click="showUpload=false" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+              <button type="button" @click="showUpload=false" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">{{ t('common.cancel') }}</button>
               <button type="submit" :disabled="uploading" class="px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700 disabled:opacity-50">
-                {{ uploading ? 'Uploading...' : 'Save' }}
+                {{ uploading ? t('common.saving') : t('common.save') }}
               </button>
             </div>
           </form>
@@ -275,179 +264,227 @@
       <div v-if="detailInv" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="detailInv=null">
         <div class="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-auto">
           <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-bold text-gray-800">Invoice #{{ detailInv.id }}</h2>
+            <h2 class="text-lg font-bold text-gray-800">{{ t('inv.detail') }} #{{ detailInv.id }}</h2>
             <button @click="detailInv=null" class="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
           </div>
           <div class="grid grid-cols-2 gap-4 text-sm">
-            <div><span class="text-gray-500">Type:</span> {{ typeLabel(detailInv.invoice_type) }}</div>
-            <div><span class="text-gray-500">Direction:</span> {{ detailInv.direction === 'inbound' ? '进项' : '销项' }}</div>
-            <div><span class="text-gray-500">Amount:</span> <span class="font-bold">¥{{ fmtAmt(detailInv.amount) }}</span></div>
-            <div><span class="text-gray-500">Tax:</span> ¥{{ fmtAmt(detailInv.tax_amount) }}</div>
-            <div><span class="text-gray-500">Vendor:</span> {{ detailInv.vendor_name || '-' }}</div>
-            <div><span class="text-gray-500">Buyer:</span> {{ detailInv.buyer_name || '-' }}</div>
-            <div><span class="text-gray-500">Invoice #:</span> {{ detailInv.invoice_number || '-' }}</div>
-            <div><span class="text-gray-500">Invoice Code:</span> {{ detailInv.invoice_code || '-' }}</div>
-            <div><span class="text-gray-500">Date:</span> {{ detailInv.invoice_date || '-' }}</div>
-            <div><span class="text-gray-500">Category:</span> {{ detailInv.category || '-' }}</div>
-            <div><span class="text-gray-500">Status:</span> {{ detailInv.status }}</div>
-            <div><span class="text-gray-500">Reimbursement:</span> {{ reimbLabel(detailInv.reimbursement_status) }}</div>
-            <div><span class="text-gray-500">Source:</span> {{ detailInv.source }}</div>
-            <div><span class="text-gray-500">Created:</span> {{ detailInv.created_at }}</div>
+            <div><span class="text-gray-500">{{ t('col.type') }}:</span> {{ typeLabel(detailInv.invoice_type) }}</div>
+            <div><span class="text-gray-500">{{ t('col.direction') }}:</span> {{ dirLabel(detailInv.direction) }}</div>
+            <div><span class="text-gray-500">{{ t('col.amount') }}:</span> <span class="font-bold">¥{{ fmtAmt(detailInv.amount) }}</span></div>
+            <div><span class="text-gray-500">{{ t('inv.tax') }}:</span> ¥{{ fmtAmt(detailInv.tax_amount) }}</div>
+            <div><span class="text-gray-500">{{ t('col.vendor') }}:</span> {{ detailInv.vendor_name || '-' }}</div>
+            <div><span class="text-gray-500">{{ t('col.buyer') }}:</span> {{ detailInv.buyer_name || '-' }}</div>
+            <div><span class="text-gray-500">{{ t('inv.invoiceNo') }}:</span> {{ detailInv.invoice_number || '-' }}</div>
+            <div><span class="text-gray-500">{{ t('inv.invoiceCode') }}:</span> {{ detailInv.invoice_code || '-' }}</div>
+            <div><span class="text-gray-500">{{ t('col.date') }}:</span> {{ detailInv.invoice_date || '-' }}</div>
+            <div><span class="text-gray-500">{{ t('inv.category') }}:</span> {{ detailInv.category || '-' }}</div>
+            <div><span class="text-gray-500">{{ t('inv.status') }}:</span> {{ detailInv.status }}</div>
+            <div><span class="text-gray-500">{{ t('col.reimb') }}:</span> {{ reimbLabel(detailInv.reimbursement_status) }}</div>
+            <div><span class="text-gray-500">{{ t('inv.source') }}:</span> {{ detailInv.source }}</div>
+            <div><span class="text-gray-500">{{ t('inv.created') }}:</span> {{ detailInv.created_at }}</div>
           </div>
-          <div v-if="detailInv.notes" class="mt-3 text-sm"><span class="text-gray-500">Notes:</span> {{ detailInv.notes }}</div>
+          <div v-if="detailInv.notes" class="mt-3 text-sm"><span class="text-gray-500">{{ t('inv.notes') }}:</span> {{ detailInv.notes }}</div>
           <div v-if="detailInv.extra_fields && typeof detailInv.extra_fields === 'object'" class="mt-3">
-            <div class="text-sm text-gray-500 mb-1">Extra Fields:</div>
+            <div class="text-sm text-gray-500 mb-1">{{ t('inv.extraFields') }}:</div>
             <div class="bg-gray-50 rounded-lg p-3 text-sm">
-              <div v-for="(v,k) in detailInv.extra_fields" :key="k">
-                <span class="text-gray-500">{{ k }}:</span> {{ v }}
-              </div>
+              <div v-for="(v,k) in detailInv.extra_fields" :key="k"><span class="text-gray-500">{{ k }}:</span> {{ v }}</div>
             </div>
           </div>
           <div class="mt-4 p-4 bg-gray-50 rounded-xl">
-            <div class="text-sm font-medium text-gray-700 mb-2">Original File</div>
+            <div class="text-sm font-medium text-gray-700 mb-2">{{ t('inv.originalFile') }}</div>
             <div v-if="detailInv.file_path" class="flex flex-wrap gap-2">
-              <a :href="'/api/invoices/'+detailInv.id+'/file'" target="_blank"
-                class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:bg-gray-100 transition-colors">
-                <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                View
-              </a>
-              <a :href="'/api/invoices/'+detailInv.id+'/file'" download
-                class="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700 transition-colors">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                Download
-              </a>
-              <button @click="triggerAttach(detailInv)" class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:bg-gray-100 transition-colors text-gray-600">
-                Replace File
-              </button>
+              <a :href="'/api/invoices/'+detailInv.id+'/file'" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:bg-gray-100">{{ t('common.view') }}</a>
+              <a :href="'/api/invoices/'+detailInv.id+'/file'" download class="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700">{{ t('common.download') }}</a>
+              <button @click="triggerAttach(detailInv)" class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:bg-gray-100 text-gray-600">{{ t('inv.replaceFile') }}</button>
             </div>
             <div v-else class="flex items-center gap-3">
-              <span class="text-sm text-gray-400">No file attached</span>
-              <button @click="triggerAttach(detailInv)" class="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700 transition-colors">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
-                Attach File
-              </button>
+              <span class="text-sm text-gray-400">{{ t('inv.noFile') }}</span>
+              <button @click="triggerAttach(detailInv)" class="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700">{{ t('common.attach') }}</button>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Hidden file input for attach -->
       <input type="file" ref="attachInput" @change="handleAttach" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" class="hidden">
 
-      <!-- Export -->
+      <!-- ========== Export ========== -->
       <div v-if="currentView === 'export'" class="p-6 max-w-3xl mx-auto">
-        <h1 class="text-2xl font-bold text-gray-800 mb-6">Export & Package</h1>
+        <h1 class="text-2xl font-bold text-gray-800 mb-6">{{ t('nav.export') }}</h1>
+
         <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm mb-6">
-          <h3 class="font-semibold text-gray-700 mb-4">Monthly Package</h3>
-          <p class="text-sm text-gray-500 mb-4">Generate a zip containing all invoice files + summary CSV for a specific month.</p>
-          <div class="flex gap-3 items-end">
+          <h3 class="font-semibold text-gray-700 mb-4">{{ t('exp.zipPackage') }}</h3>
+          <p class="text-sm text-gray-500 mb-4">{{ t('exp.zipDesc') }}</p>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <div>
-              <label class="block text-sm text-gray-600 mb-1">Month</label>
-              <input v-model="packageMonth" type="month" class="border rounded-lg px-3 py-2 text-sm">
+              <label class="block text-sm text-gray-600 mb-1">{{ t('exp.startDate') }}</label>
+              <input v-model="pkgFilters.startDate" type="date" class="w-full border rounded-lg px-3 py-2 text-sm">
             </div>
-            <button @click="generatePackage" :disabled="packaging"
-              class="px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700 disabled:opacity-50">
-              {{ packaging ? 'Generating...' : 'Generate Zip' }}
-            </button>
+            <div>
+              <label class="block text-sm text-gray-600 mb-1">{{ t('exp.endDate') }}</label>
+              <input v-model="pkgFilters.endDate" type="date" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-sm text-gray-600 mb-1">{{ t('col.buyer') }}</label>
+              <select v-model="pkgFilters.buyer" class="w-full border rounded-lg px-3 py-2 text-sm">
+                <option value="">{{ t('common.all') }}</option>
+                <option v-for="b in buyerList" :key="b" :value="b">{{ b }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm text-gray-600 mb-1">{{ t('col.direction') }}</label>
+              <select v-model="pkgFilters.direction" class="w-full border rounded-lg px-3 py-2 text-sm">
+                <option value="">{{ t('common.all') }}</option>
+                <option value="inbound">{{ t('dir.inbound') }}</option>
+                <option value="outbound">{{ t('dir.outbound') }}</option>
+              </select>
+            </div>
           </div>
+          <button @click="generatePackage" :disabled="packaging" class="px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700 disabled:opacity-50">
+            {{ packaging ? t('exp.generating') : t('exp.generateZip') }}
+          </button>
           <div v-if="packageResult" class="mt-3 p-3 bg-green-50 text-green-700 rounded-lg text-sm">
-            Package ready: {{ packageResult.count }} invoices, {{ packageResult.fileCount }} files
-            <a :href="'/api/exports/'+packageResult.filename" class="ml-2 underline font-medium">Download</a>
+            {{ t('exp.ready') }}: {{ packageResult.count }} {{ t('nav.invoices') }}, {{ packageResult.fileCount }} {{ t('exp.files') }}
+            <a :href="'/api/exports/'+packageResult.filename" class="ml-2 underline font-medium">{{ t('common.download') }}</a>
           </div>
         </div>
 
         <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm mb-6">
-          <h3 class="font-semibold text-gray-700 mb-4">CSV / JSON Export</h3>
+          <h3 class="font-semibold text-gray-700 mb-4">{{ t('exp.csvJson') }}</h3>
           <div class="flex gap-3">
-            <a :href="exportUrl('csv')" class="px-4 py-2 bg-gray-100 text-sm rounded-lg hover:bg-gray-200">Export CSV</a>
-            <a :href="exportUrl('json')" class="px-4 py-2 bg-gray-100 text-sm rounded-lg hover:bg-gray-200">Export JSON</a>
+            <a :href="exportUrl('csv')" class="px-4 py-2 bg-gray-100 text-sm rounded-lg hover:bg-gray-200">{{ t('exp.exportCsv') }}</a>
+            <a :href="exportUrl('json')" class="px-4 py-2 bg-gray-100 text-sm rounded-lg hover:bg-gray-200">{{ t('exp.exportJson') }}</a>
           </div>
         </div>
 
         <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
-          <h3 class="font-semibold text-gray-700 mb-4">Previous Exports</h3>
-          <div v-if="exports.length === 0" class="text-sm text-gray-400">No exports yet</div>
+          <h3 class="font-semibold text-gray-700 mb-4">{{ t('exp.previous') }}</h3>
+          <div v-if="exports.length===0" class="text-sm text-gray-400">{{ t('exp.noneYet') }}</div>
           <div v-for="e in exports" :key="e.filename" class="flex justify-between items-center py-2 border-b border-gray-50">
             <span class="text-sm">{{ e.filename }}</span>
             <div class="flex items-center gap-3">
               <span class="text-xs text-gray-400">{{ (e.size/1024).toFixed(0) }}KB</span>
-              <a :href="'/api/exports/'+e.filename" class="text-sm text-brand-600 hover:underline">Download</a>
+              <a :href="'/api/exports/'+e.filename" class="text-sm text-brand-600 hover:underline">{{ t('common.download') }}</a>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Email Settings -->
-      <div v-if="currentView === 'email'" class="p-6 max-w-2xl mx-auto">
-        <h1 class="text-2xl font-bold text-gray-800 mb-6">Email Settings</h1>
+      <!-- ========== Settings ========== -->
+      <div v-if="currentView === 'settings'" class="p-6 max-w-2xl mx-auto">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6">{{ t('nav.settings') }}</h1>
+
+        <!-- Language -->
         <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm mb-6">
-          <h3 class="font-semibold text-gray-700 mb-4">IMAP Configuration</h3>
+          <h3 class="font-semibold text-gray-700 mb-4">{{ t('set.language') }}</h3>
+          <div class="flex gap-3">
+            <button @click="setLocale('zh')" :class="['px-4 py-2 rounded-lg text-sm border', locale==='zh'?'bg-brand-50 border-brand-300 text-brand-700':'border-gray-200 hover:bg-gray-50']">中文</button>
+            <button @click="setLocale('en')" :class="['px-4 py-2 rounded-lg text-sm border', locale==='en'?'bg-brand-50 border-brand-300 text-brand-700':'border-gray-200 hover:bg-gray-50']">English</button>
+          </div>
+        </div>
+
+        <!-- Email -->
+        <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm mb-6">
+          <h3 class="font-semibold text-gray-700 mb-4">{{ t('set.email') }}</h3>
           <form @submit.prevent="saveEmail" class="space-y-3">
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">IMAP Host</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('email.host') }}</label>
                 <input v-model="emailConfig.host" required class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="imap.example.com">
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Port</label>
-                <input v-model="emailConfig.port" type="number" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="993">
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('email.port') }}</label>
+                <input v-model="emailConfig.port" type="number" class="w-full border rounded-lg px-3 py-2 text-sm">
               </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                <input v-model="emailConfig.user" required class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="user@example.com">
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('email.user') }}</label>
+                <input v-model="emailConfig.user" required class="w-full border rounded-lg px-3 py-2 text-sm">
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('email.pass') }}</label>
                 <input v-model="emailConfig.pass" type="password" required class="w-full border rounded-lg px-3 py-2 text-sm">
               </div>
             </div>
             <div class="grid grid-cols-3 gap-3">
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Folder</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('email.folder') }}</label>
                 <input v-model="emailConfig.folder" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="INBOX">
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Poll Interval (min)</label>
-                <input v-model="emailConfig.pollInterval" type="number" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="15">
+                <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('email.interval') }}</label>
+                <input v-model="emailConfig.pollInterval" type="number" class="w-full border rounded-lg px-3 py-2 text-sm">
               </div>
               <div class="flex items-end gap-4 pb-1">
-                <label class="flex items-center gap-2 text-sm">
-                  <input v-model="emailConfig.secure" type="checkbox"> SSL/TLS
-                </label>
-                <label class="flex items-center gap-2 text-sm">
-                  <input v-model="emailConfig.enabled" type="checkbox"> Enabled
-                </label>
+                <label class="flex items-center gap-2 text-sm"><input v-model="emailConfig.secure" type="checkbox"> SSL</label>
+                <label class="flex items-center gap-2 text-sm"><input v-model="emailConfig.enabled" type="checkbox"> {{ t('email.enabled') }}</label>
               </div>
             </div>
             <div class="flex gap-2 pt-2">
-              <button type="submit" class="px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700">Save</button>
-              <button type="button" @click="testEmail" :disabled="emailTesting"
-                class="px-4 py-2 bg-gray-100 text-sm rounded-lg hover:bg-gray-200 disabled:opacity-50">
-                {{ emailTesting ? 'Testing...' : 'Test Connection' }}
+              <button type="submit" class="px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700">{{ t('common.save') }}</button>
+              <button type="button" @click="testEmail" :disabled="emailTesting" class="px-4 py-2 bg-gray-100 text-sm rounded-lg hover:bg-gray-200 disabled:opacity-50">
+                {{ emailTesting ? t('email.testing') : t('email.test') }}
               </button>
             </div>
           </form>
-          <div v-if="emailTestResult" class="mt-3 p-3 rounded-lg text-sm"
-            :class="emailTestResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'">
-            {{ emailTestResult.success ? 'Connection successful! ' + emailTestResult.exists + ' messages in folder.' : 'Failed: ' + emailTestResult.error }}
+          <div v-if="emailTestResult" class="mt-3 p-3 rounded-lg text-sm" :class="emailTestResult.success?'bg-green-50 text-green-700':'bg-red-50 text-red-700'">
+            {{ emailTestResult.success ? t('email.success')+' '+emailTestResult.exists+' messages' : t('email.failed')+': '+emailTestResult.error }}
           </div>
         </div>
 
+        <!-- Poller Status -->
         <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
-          <h3 class="font-semibold text-gray-700 mb-3">Poller Status</h3>
+          <h3 class="font-semibold text-gray-700 mb-3">{{ t('email.pollerStatus') }}</h3>
           <div class="text-sm space-y-1.5">
-            <div><span class="text-gray-500">Running:</span>
-              <span :class="emailStatus.running ? 'text-green-600' : 'text-gray-400'">{{ emailStatus.running ? 'Yes' : 'No' }}</span>
+            <div><span class="text-gray-500">{{ t('email.running') }}:</span>
+              <span :class="emailStatus.running?'text-green-600':'text-gray-400'">{{ emailStatus.running ? t('common.yes') : t('common.no') }}</span>
             </div>
-            <div><span class="text-gray-500">Last check:</span> {{ emailStatus.lastCheck || 'Never' }}</div>
-            <div><span class="text-gray-500">Next check:</span> {{ emailStatus.nextCheck || '-' }}</div>
-            <div><span class="text-gray-500">Processed:</span> {{ emailStatus.processedCount || 0 }} attachments</div>
-            <div v-if="emailStatus.lastError" class="text-red-500">Error: {{ emailStatus.lastError }}</div>
+            <div><span class="text-gray-500">{{ t('email.lastCheck') }}:</span> {{ emailStatus.lastCheck || t('common.never') }}</div>
+            <div><span class="text-gray-500">{{ t('email.nextCheck') }}:</span> {{ emailStatus.nextCheck || '-' }}</div>
+            <div><span class="text-gray-500">{{ t('email.processed') }}:</span> {{ emailStatus.processedCount || 0 }}</div>
+            <div v-if="emailStatus.lastError" class="text-red-500">{{ t('common.error') }}: {{ emailStatus.lastError }}</div>
           </div>
         </div>
       </div>
+
+      <!-- ========== Feedback ========== -->
+      <div v-if="currentView === 'feedback'" class="p-6 max-w-2xl mx-auto">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6">{{ t('nav.feedback') }}</h1>
+
+        <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm mb-6">
+          <h3 class="font-semibold text-gray-700 mb-4">{{ t('fb.submit') }}</h3>
+          <form @submit.prevent="submitFeedback" class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('fb.category') }}</label>
+              <select v-model="fbCategory" class="w-full border rounded-lg px-3 py-2 text-sm">
+                <option value="feature_request">{{ t('fb.feature') }}</option>
+                <option value="bug">{{ t('fb.bug') }}</option>
+                <option value="improvement">{{ t('fb.improvement') }}</option>
+                <option value="other">{{ t('fb.other') }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('fb.message') }}</label>
+              <textarea v-model="fbMessage" rows="4" required class="w-full border rounded-lg px-3 py-2 text-sm" :placeholder="t('fb.placeholder')"></textarea>
+            </div>
+            <div class="flex justify-end">
+              <button type="submit" :disabled="fbSubmitting" class="px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700 disabled:opacity-50">
+                {{ fbSubmitting ? t('common.saving') : t('fb.send') }}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold text-gray-700">{{ t('fb.history') }}</h3>
+            <a v-if="feedbackContent" href="/api/feedback" download="feedback.md" class="text-sm text-brand-600 hover:underline">{{ t('fb.downloadMd') }}</a>
+          </div>
+          <div v-if="!feedbackContent" class="text-sm text-gray-400">{{ t('fb.noFeedback') }}</div>
+          <pre v-else class="text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-4 max-h-96 overflow-auto">{{ feedbackContent }}</pre>
+        </div>
+      </div>
+
     </main>
   </div>
 </div>
@@ -455,267 +492,290 @@
 <script>
 const { createApp, ref, reactive, computed, onMounted, watch } = Vue;
 
+const I18N = {
+  zh: {
+    'nav.dashboard': '仪表盘', 'nav.invoices': '发票管理', 'nav.export': '导出打包',
+    'nav.settings': '设置', 'nav.feedback': '反馈',
+    'dash.total': '发票总数', 'dash.inbound': '进项总额', 'dash.outbound': '销项总额',
+    'dash.unreimbursed': '未报销', 'dash.byType': '按类型', 'dash.byCategory': '按分类',
+    'col.type': '类型', 'col.direction': '方向', 'col.amount': '金额', 'col.vendor': '开票方',
+    'col.buyer': '购买方', 'col.date': '日期', 'col.file': '附件', 'col.reimb': '报销', 'col.actions': '操作',
+    'dir.inbound': '进项', 'dir.outbound': '销项',
+    'reimb.unreimbursed': '未报销', 'reimb.submitted': '已提交', 'reimb.reimbursed': '已报销', 'reimb.rejected': '被驳回',
+    'type.rail_ticket': '高铁票', 'type.general_invoice': '普通发票', 'type.ride_hailing': '网约车',
+    'type.taxi_receipt': '出租车票', 'type.vat_special': '专用发票', 'type.other': '其他',
+    'inv.search': '搜索...', 'inv.allMonths': '所有月份', 'inv.allTypes': '所有类型',
+    'inv.allDirections': '所有方向', 'inv.allStatus': '所有状态', 'inv.empty': '暂无发票',
+    'inv.upload': '上传发票', 'inv.dropFile': '拖拽文件到此处或点击选择', 'inv.detail': '发票详情',
+    'inv.invoiceNo': '发票号码', 'inv.invoiceCode': '发票代码', 'inv.category': '分类',
+    'inv.notes': '备注', 'inv.tax': '税额', 'inv.status': '状态', 'inv.source': '来源',
+    'inv.created': '创建时间', 'inv.extraFields': '扩展字段', 'inv.originalFile': '原始文件',
+    'inv.replaceFile': '替换文件', 'inv.noFile': '未附加文件',
+    'exp.zipPackage': '发票打包导出', 'exp.zipDesc': '生成包含发票源文件和汇总CSV的zip压缩包，按进出项和购买方分类。',
+    'exp.startDate': '开始日期', 'exp.endDate': '结束日期', 'exp.generateZip': '生成Zip',
+    'exp.generating': '生成中...', 'exp.ready': '打包完成', 'exp.files': '个文件',
+    'exp.csvJson': 'CSV / JSON 导出', 'exp.exportCsv': '导出 CSV', 'exp.exportJson': '导出 JSON',
+    'exp.previous': '历史导出', 'exp.noneYet': '暂无导出记录',
+    'set.language': '界面语言', 'set.email': '邮箱配置 (IMAP)',
+    'email.host': 'IMAP 主机', 'email.port': '端口', 'email.user': '用户名', 'email.pass': '密码',
+    'email.folder': '文件夹', 'email.interval': '轮询间隔(分)', 'email.enabled': '启用',
+    'email.test': '测试连接', 'email.testing': '测试中...', 'email.success': '连接成功!',
+    'email.failed': '连接失败', 'email.pollerStatus': '轮询状态', 'email.running': '运行中',
+    'email.lastCheck': '上次检查', 'email.nextCheck': '下次检查', 'email.processed': '已处理',
+    'fb.submit': '提交反馈', 'fb.category': '分类', 'fb.feature': '功能需求', 'fb.bug': '问题报告',
+    'fb.improvement': '改进建议', 'fb.other': '其他', 'fb.message': '详细描述',
+    'fb.placeholder': '请描述您的需求或建议...', 'fb.send': '提交', 'fb.history': '反馈历史',
+    'fb.downloadMd': '下载 feedback.md', 'fb.noFeedback': '暂无反馈',
+    'common.all': '全部', 'common.reset': '重置', 'common.save': '保存', 'common.saving': '保存中...',
+    'common.cancel': '取消', 'common.delete': '删除', 'common.view': '查看', 'common.download': '下载',
+    'common.attach': '附加文件', 'common.select': '选择', 'common.yes': '是', 'common.no': '否',
+    'common.never': '从未', 'common.error': '错误', 'common.uncategorized': '未分类',
+    'common.confirm_delete': '确定删除发票 #{id}?', 'common.uploadFailed': '上传失败',
+    'common.attachFailed': '附加失败', 'common.packageFailed': '打包失败', 'common.saved': '已保存!',
+    'common.feedbackSaved': '反馈已提交，感谢！',
+  },
+  en: {
+    'nav.dashboard': 'Dashboard', 'nav.invoices': 'Invoices', 'nav.export': 'Export',
+    'nav.settings': 'Settings', 'nav.feedback': 'Feedback',
+    'dash.total': 'Total Invoices', 'dash.inbound': 'Inbound Total', 'dash.outbound': 'Outbound Total',
+    'dash.unreimbursed': 'Unreimbursed', 'dash.byType': 'By Type', 'dash.byCategory': 'By Category',
+    'col.type': 'Type', 'col.direction': 'Direction', 'col.amount': 'Amount', 'col.vendor': 'Vendor',
+    'col.buyer': 'Buyer', 'col.date': 'Date', 'col.file': 'File', 'col.reimb': 'Reimb.', 'col.actions': 'Actions',
+    'dir.inbound': 'Inbound', 'dir.outbound': 'Outbound',
+    'reimb.unreimbursed': 'Unreimbursed', 'reimb.submitted': 'Submitted', 'reimb.reimbursed': 'Reimbursed', 'reimb.rejected': 'Rejected',
+    'type.rail_ticket': 'Rail Ticket', 'type.general_invoice': 'General Invoice', 'type.ride_hailing': 'Ride-hailing',
+    'type.taxi_receipt': 'Taxi Receipt', 'type.vat_special': 'VAT Special', 'type.other': 'Other',
+    'inv.search': 'Search...', 'inv.allMonths': 'All months', 'inv.allTypes': 'All types',
+    'inv.allDirections': 'All directions', 'inv.allStatus': 'All status', 'inv.empty': 'No invoices found',
+    'inv.upload': 'Upload Invoice', 'inv.dropFile': 'Drop file here or click to browse', 'inv.detail': 'Invoice',
+    'inv.invoiceNo': 'Invoice No.', 'inv.invoiceCode': 'Invoice Code', 'inv.category': 'Category',
+    'inv.notes': 'Notes', 'inv.tax': 'Tax', 'inv.status': 'Status', 'inv.source': 'Source',
+    'inv.created': 'Created', 'inv.extraFields': 'Extra Fields', 'inv.originalFile': 'Original File',
+    'inv.replaceFile': 'Replace File', 'inv.noFile': 'No file attached',
+    'exp.zipPackage': 'Invoice Zip Package', 'exp.zipDesc': 'Generate a zip with invoice source files and summary CSV, organized by direction and buyer.',
+    'exp.startDate': 'Start Date', 'exp.endDate': 'End Date', 'exp.generateZip': 'Generate Zip',
+    'exp.generating': 'Generating...', 'exp.ready': 'Package ready', 'exp.files': 'files',
+    'exp.csvJson': 'CSV / JSON Export', 'exp.exportCsv': 'Export CSV', 'exp.exportJson': 'Export JSON',
+    'exp.previous': 'Previous Exports', 'exp.noneYet': 'No exports yet',
+    'set.language': 'Language', 'set.email': 'Email Configuration (IMAP)',
+    'email.host': 'IMAP Host', 'email.port': 'Port', 'email.user': 'Username', 'email.pass': 'Password',
+    'email.folder': 'Folder', 'email.interval': 'Poll Interval (min)', 'email.enabled': 'Enabled',
+    'email.test': 'Test Connection', 'email.testing': 'Testing...', 'email.success': 'Connected!',
+    'email.failed': 'Failed', 'email.pollerStatus': 'Poller Status', 'email.running': 'Running',
+    'email.lastCheck': 'Last check', 'email.nextCheck': 'Next check', 'email.processed': 'Processed',
+    'fb.submit': 'Submit Feedback', 'fb.category': 'Category', 'fb.feature': 'Feature Request', 'fb.bug': 'Bug Report',
+    'fb.improvement': 'Improvement', 'fb.other': 'Other', 'fb.message': 'Description',
+    'fb.placeholder': 'Describe your request or suggestion...', 'fb.send': 'Submit', 'fb.history': 'Feedback History',
+    'fb.downloadMd': 'Download feedback.md', 'fb.noFeedback': 'No feedback yet',
+    'common.all': 'All', 'common.reset': 'Reset', 'common.save': 'Save', 'common.saving': 'Saving...',
+    'common.cancel': 'Cancel', 'common.delete': 'Delete', 'common.view': 'View', 'common.download': 'Download',
+    'common.attach': 'Attach', 'common.select': 'Select', 'common.yes': 'Yes', 'common.no': 'No',
+    'common.never': 'Never', 'common.error': 'Error', 'common.uncategorized': 'Uncategorized',
+    'common.confirm_delete': 'Delete invoice #{id}?', 'common.uploadFailed': 'Upload failed',
+    'common.attachFailed': 'Attach failed', 'common.packageFailed': 'Package failed', 'common.saved': 'Saved!',
+    'common.feedbackSaved': 'Feedback submitted, thank you!',
+  }
+};
+
 createApp({
   setup() {
+    const locale = ref(localStorage.getItem('invoiceclaw_lang') || 'zh');
+    function t(key) { return I18N[locale.value]?.[key] || I18N.zh[key] || key; }
+    function setLocale(l) { locale.value = l; localStorage.setItem('invoiceclaw_lang', l); fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({language:l}) }); }
+    function toggleLang() { setLocale(locale.value === 'zh' ? 'en' : 'zh'); }
+
     const currentView = ref('dashboard');
     const navItems = [
-      { id: 'dashboard', icon: '📊', label: 'Dashboard' },
-      { id: 'invoices', icon: '🧾', label: 'Invoices' },
-      { id: 'export', icon: '📦', label: 'Export' },
-      { id: 'email', icon: '📧', label: 'Email Settings' }
+      { id:'dashboard', icon:'📊', labelKey:'nav.dashboard' },
+      { id:'invoices', icon:'🧾', labelKey:'nav.invoices' },
+      { id:'export', icon:'📦', labelKey:'nav.export' },
+      { id:'settings', icon:'⚙️', labelKey:'nav.settings' },
+      { id:'feedback', icon:'💬', labelKey:'nav.feedback' },
     ];
 
-    const typeLabels = {
-      rail_ticket: '高铁票', general_invoice: '普通发票', ride_hailing: '网约车',
-      taxi_receipt: '出租车票', vat_special: '专用发票', other: '其他'
-    };
-    const categories = ['transportation', 'dining', 'office', 'equipment', 'service', 'accommodation', 'communication', 'other'];
-
-    const invoices = ref([]);
-    const totalCount = ref(0);
-    const filters = reactive({ page: 1, month: '', type: '', direction: '', reimbursement: '', search: '' });
-    const showUpload = ref(false);
-    const uploading = ref(false);
-    const detailInv = ref(null);
-
-    const dashStats = reactive({
-      totalCount: 0, inboundTotal: 0, outboundTotal: 0, unreimbursedTotal: 0,
-      byType: [], byCategory: []
+    const typeKeys = ['rail_ticket','general_invoice','ride_hailing','taxi_receipt','vat_special','other'];
+    const typeLabelsMap = computed(() => {
+      const m = {};
+      for (const k of typeKeys) m[k] = t('type.'+k);
+      return m;
     });
+    const categories = ['transportation','dining','office','equipment','service','accommodation','communication','other'];
 
-    const uploadForm = reactive({
-      invoice_type: 'general_invoice', direction: 'inbound', amount: '', invoice_date: '',
-      vendor_name: '', invoice_number: '', category: '', notes: '', file: null
-    });
-
-    const months = computed(() => {
-      const ms = [];
-      const now = new Date();
-      for (let i = 0; i < 12; i++) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        ms.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
-      }
-      return ms;
-    });
-
-    const totalPages = computed(() => Math.ceil(totalCount.value / 50));
-
-    const packageMonth = ref('');
-    const packaging = ref(false);
-    const packageResult = ref(null);
-    const exports = ref([]);
-
-    const emailConfig = reactive({
-      host: '', port: 993, user: '', pass: '', secure: true,
-      folder: 'INBOX', pollInterval: 15, enabled: false, markRead: true
-    });
-    const emailStatus = reactive({ running: false, lastCheck: null, nextCheck: null, processedCount: 0, lastError: null });
-    const emailTesting = ref(false);
-    const emailTestResult = ref(null);
-
-    async function fetchInvoices() {
-      const params = new URLSearchParams();
-      for (const [k,v] of Object.entries(filters)) { if (v) params.set(k, v); }
-      const res = await fetch('/api/invoices?' + params);
-      const data = await res.json();
-      invoices.value = data.invoices || [];
-      totalCount.value = data.total || 0;
-    }
-
-    let debounceTimer;
-    function debouncedFetch() {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(fetchInvoices, 300);
-    }
-
-    async function fetchDashboard() {
-      const res = await fetch('/api/stats');
-      const stats = await res.json();
-
-      let tc = 0, it = 0, ot = 0;
-      for (const d of (stats.byDirection || [])) {
-        tc += d.count;
-        if (d.direction === 'inbound') it = d.total_amount;
-        if (d.direction === 'outbound') ot = d.total_amount;
-      }
-      dashStats.totalCount = tc;
-      dashStats.inboundTotal = it;
-      dashStats.outboundTotal = ot;
-
-      let ut = 0;
-      for (const r of (stats.byReimbursement || [])) {
-        if (r.reimbursement_status === 'unreimbursed') ut = r.total;
-      }
-      dashStats.unreimbursedTotal = ut;
-      dashStats.byType = stats.byType || [];
-      dashStats.byCategory = stats.byCategory || [];
-    }
-
-    function resetFilters() {
-      Object.assign(filters, { page: 1, month: '', type: '', direction: '', reimbursement: '', search: '' });
-      fetchInvoices();
-    }
-
-    function fmtAmt(n) { return (n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
-    function typeLabel(t) { return typeLabels[t] || t; }
-    function reimbLabel(s) { return { unreimbursed:'未报销', submitted:'已提交', reimbursed:'已报销', rejected:'被驳回' }[s] || s || '未报销'; }
-    function typeBadge(t) {
+    function typeLabel(k) { return t('type.'+k) || k; }
+    function dirLabel(d) { return d === 'inbound' ? t('dir.inbound') : t('dir.outbound'); }
+    function reimbLabel(s) { return t('reimb.'+(s||'unreimbursed')); }
+    function typeBadge(k) {
       return { rail_ticket:'bg-purple-100 text-purple-700', general_invoice:'bg-blue-100 text-blue-700',
         ride_hailing:'bg-cyan-100 text-cyan-700', taxi_receipt:'bg-yellow-100 text-yellow-700',
-        vat_special:'bg-red-100 text-red-700', other:'bg-gray-100 text-gray-700' }[t] || 'bg-gray-100 text-gray-700';
+        vat_special:'bg-red-100 text-red-700', other:'bg-gray-100 text-gray-700' }[k] || 'bg-gray-100 text-gray-700';
     }
     function reimbBadge(s) {
       return { unreimbursed:'bg-orange-100 text-orange-700', submitted:'bg-blue-100 text-blue-700',
         reimbursed:'bg-green-100 text-green-700', rejected:'bg-red-100 text-red-700' }[s] || 'bg-gray-100 text-gray-700';
     }
+    function fmtAmt(n) { return (n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+
+    const invoices = ref([]);
+    const totalCount = ref(0);
+    const filters = reactive({ page:1, month:'', type:'', direction:'', reimbursement:'', search:'' });
+    const showUpload = ref(false);
+    const uploading = ref(false);
+    const detailInv = ref(null);
+    const dashStats = reactive({ totalCount:0, inboundTotal:0, outboundTotal:0, unreimbursedTotal:0, byType:[], byCategory:[] });
+    const uploadForm = reactive({ invoice_type:'general_invoice', direction:'inbound', amount:'', invoice_date:'', vendor_name:'', invoice_number:'', category:'', notes:'', file:null });
+
+    const months = computed(() => {
+      const ms = []; const now = new Date();
+      for (let i=0;i<12;i++) { const d=new Date(now.getFullYear(),now.getMonth()-i,1); ms.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); }
+      return ms;
+    });
+    const totalPages = computed(() => Math.ceil(totalCount.value/50));
+
+    const now = new Date();
+    const pkgFilters = reactive({
+      startDate: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`,
+      endDate: new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10),
+      buyer: '', direction: ''
+    });
+    const packaging = ref(false);
+    const packageResult = ref(null);
+    const exports = ref([]);
+    const buyerList = ref([]);
+
+    const emailConfig = reactive({ host:'', port:993, user:'', pass:'', secure:true, folder:'INBOX', pollInterval:15, enabled:false, markRead:true });
+    const emailStatus = reactive({ running:false, lastCheck:null, nextCheck:null, processedCount:0, lastError:null });
+    const emailTesting = ref(false);
+    const emailTestResult = ref(null);
+
+    const fbCategory = ref('feature_request');
+    const fbMessage = ref('');
+    const fbSubmitting = ref(false);
+    const feedbackContent = ref('');
+
+    async function fetchInvoices() {
+      const p = new URLSearchParams();
+      for (const [k,v] of Object.entries(filters)) { if(v) p.set(k,v); }
+      const r = await fetch('/api/invoices?'+p);
+      const d = await r.json();
+      invoices.value = d.invoices||[];
+      totalCount.value = d.total||0;
+    }
+    let dt; function debouncedFetch() { clearTimeout(dt); dt=setTimeout(fetchInvoices,300); }
+
+    async function fetchDashboard() {
+      const r = await fetch('/api/stats'); const s = await r.json();
+      let tc=0,it=0,ot=0;
+      for(const d of (s.byDirection||[])) { tc+=d.count; if(d.direction==='inbound')it=d.total_amount; if(d.direction==='outbound')ot=d.total_amount; }
+      dashStats.totalCount=tc; dashStats.inboundTotal=it; dashStats.outboundTotal=ot;
+      let ut=0; for(const r of (s.byReimbursement||[])) { if(r.reimbursement_status==='unreimbursed')ut=r.total; }
+      dashStats.unreimbursedTotal=ut; dashStats.byType=s.byType||[]; dashStats.byCategory=s.byCategory||[];
+    }
+
+    function resetFilters() { Object.assign(filters,{page:1,month:'',type:'',direction:'',reimbursement:'',search:''}); fetchInvoices(); }
 
     async function toggleReimburse(inv) {
-      const endpoint = inv.reimbursement_status === 'reimbursed' ? 'unreimburse' : 'reimburse';
-      await fetch(`/api/invoices/${inv.id}/${endpoint}`, { method: 'POST' });
-      fetchInvoices();
-      fetchDashboard();
+      const ep = inv.reimbursement_status==='reimbursed'?'unreimburse':'reimburse';
+      await fetch(`/api/invoices/${inv.id}/${ep}`,{method:'POST'}); fetchInvoices(); fetchDashboard();
     }
-
-    function viewInvoice(inv) { detailInv.value = inv; }
-
+    function viewInvoice(inv) { detailInv.value=inv; }
     async function deleteInv(inv) {
-      if (!confirm(`Delete invoice #${inv.id}?`)) return;
-      await fetch(`/api/invoices/${inv.id}`, { method: 'DELETE' });
-      fetchInvoices();
-      fetchDashboard();
+      if(!confirm(t('common.confirm_delete').replace('{id}',inv.id))) return;
+      await fetch(`/api/invoices/${inv.id}`,{method:'DELETE'}); fetchInvoices(); fetchDashboard();
     }
 
-    function handleFileSelect(e) { uploadForm.file = e.target.files[0]; }
-    function handleDrop(e) { uploadForm.file = e.dataTransfer.files[0]; }
-
-    const attachInput = ref(null);
-    const attachingInvId = ref(null);
-
-    function triggerAttach(inv) {
-      attachingInvId.value = inv.id;
-      attachInput.value.click();
-    }
-
+    function handleFileSelect(e) { uploadForm.file=e.target.files[0]; }
+    function handleDrop(e) { uploadForm.file=e.dataTransfer.files[0]; }
+    const attachInput = ref(null); const attachingInvId = ref(null);
+    function triggerAttach(inv) { attachingInvId.value=inv.id; attachInput.value.click(); }
     async function handleAttach(e) {
-      const file = e.target.files[0];
-      if (!file || !attachingInvId.value) return;
-      const fd = new FormData();
-      fd.append('file', file);
-      try {
-        const res = await fetch(`/api/invoices/${attachingInvId.value}/attach`, { method: 'POST', body: fd });
-        if (!res.ok) throw new Error((await res.json()).error);
-        const updated = await res.json();
-        if (detailInv.value && detailInv.value.id === updated.id) detailInv.value = updated;
-        fetchInvoices();
-      } catch (err) { alert('Attach failed: ' + err.message); }
-      attachingInvId.value = null;
-      e.target.value = '';
+      const f=e.target.files[0]; if(!f||!attachingInvId.value)return;
+      const fd=new FormData(); fd.append('file',f);
+      try { const r=await fetch(`/api/invoices/${attachingInvId.value}/attach`,{method:'POST',body:fd}); if(!r.ok)throw new Error((await r.json()).error); const u=await r.json(); if(detailInv.value&&detailInv.value.id===u.id)detailInv.value=u; fetchInvoices(); }
+      catch(err) { alert(t('common.attachFailed')+': '+err.message); }
+      attachingInvId.value=null; e.target.value='';
     }
-
     async function submitUpload() {
-      uploading.value = true;
+      uploading.value=true;
       try {
-        const fd = new FormData();
-        if (uploadForm.file) fd.append('file', uploadForm.file);
-        for (const k of ['invoice_type','direction','amount','invoice_date','vendor_name','invoice_number','category','notes']) {
-          if (uploadForm[k]) fd.append(k, uploadForm[k]);
-        }
-        const res = await fetch('/api/invoices', { method: 'POST', body: fd });
-        if (!res.ok) throw new Error((await res.json()).error);
-        showUpload.value = false;
-        Object.assign(uploadForm, { invoice_type:'general_invoice', direction:'inbound', amount:'', invoice_date:'', vendor_name:'', invoice_number:'', category:'', notes:'', file:null });
-        fetchInvoices();
-        fetchDashboard();
-      } catch (e) { alert('Upload failed: ' + e.message); }
-      uploading.value = false;
+        const fd=new FormData(); if(uploadForm.file)fd.append('file',uploadForm.file);
+        for(const k of ['invoice_type','direction','amount','invoice_date','vendor_name','invoice_number','category','notes']) { if(uploadForm[k])fd.append(k,uploadForm[k]); }
+        const r=await fetch('/api/invoices',{method:'POST',body:fd}); if(!r.ok)throw new Error((await r.json()).error);
+        showUpload.value=false;
+        Object.assign(uploadForm,{invoice_type:'general_invoice',direction:'inbound',amount:'',invoice_date:'',vendor_name:'',invoice_number:'',category:'',notes:'',file:null});
+        fetchInvoices(); fetchDashboard();
+      } catch(e) { alert(t('common.uploadFailed')+': '+e.message); }
+      uploading.value=false;
     }
 
+    async function fetchBuyers() { const r=await fetch('/api/invoices/buyers'); buyerList.value=await r.json(); }
     async function generatePackage() {
-      if (!packageMonth.value) return;
-      packaging.value = true;
-      packageResult.value = null;
+      if(!pkgFilters.startDate||!pkgFilters.endDate) return;
+      packaging.value=true; packageResult.value=null;
       try {
-        const m = packageMonth.value.slice(0, 7);
-        const res = await fetch('/api/package', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ month: m })
-        });
-        if (!res.ok) throw new Error((await res.json()).error);
-        packageResult.value = await res.json();
-        fetchExports();
-      } catch (e) { alert('Package failed: ' + e.message); }
-      packaging.value = false;
+        const body = { startDate:pkgFilters.startDate, endDate:pkgFilters.endDate };
+        if(pkgFilters.buyer) body.buyer=pkgFilters.buyer;
+        if(pkgFilters.direction) body.direction=pkgFilters.direction;
+        const r=await fetch('/api/package',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        if(!r.ok) throw new Error((await r.json()).error);
+        packageResult.value=await r.json(); fetchExports();
+      } catch(e) { alert(t('common.packageFailed')+': '+e.message); }
+      packaging.value=false;
     }
-
-    async function fetchExports() {
-      const res = await fetch('/api/exports');
-      exports.value = await res.json();
-    }
-
-    function exportUrl(format) {
-      const params = new URLSearchParams();
-      params.set('format', format);
-      if (filters.month) params.set('month', filters.month);
-      return '/api/export?' + params;
-    }
+    async function fetchExports() { const r=await fetch('/api/exports'); exports.value=await r.json(); }
+    function exportUrl(fmt) { const p=new URLSearchParams(); p.set('format',fmt); if(filters.month)p.set('month',filters.month); return '/api/export?'+p; }
 
     async function loadEmailConfig_() {
-      const res = await fetch('/api/email/config');
-      const data = await res.json();
-      if (data.configured) {
-        Object.assign(emailConfig, {
-          host: data.host || '', port: data.port || 993, user: data.user || '',
-          pass: data.pass || '', secure: data.secure !== false, folder: data.folder || 'INBOX',
-          pollInterval: data.pollInterval || 15, enabled: data.enabled !== false, markRead: data.markRead !== false
-        });
-      }
+      const r=await fetch('/api/email/config'); const d=await r.json();
+      if(d.configured) Object.assign(emailConfig,{host:d.host||'',port:d.port||993,user:d.user||'',pass:d.pass||'',secure:d.secure!==false,folder:d.folder||'INBOX',pollInterval:d.pollInterval||15,enabled:d.enabled!==false,markRead:d.markRead!==false});
     }
-
-    async function loadEmailStatus() {
-      const res = await fetch('/api/email/status');
-      Object.assign(emailStatus, await res.json());
-    }
-
+    async function loadEmailStatus() { const r=await fetch('/api/email/status'); Object.assign(emailStatus,await r.json()); }
     async function saveEmail() {
-      const res = await fetch('/api/email/config', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(emailConfig)
-      });
-      if (res.ok) { alert('Saved!'); loadEmailStatus(); }
+      const r=await fetch('/api/email/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(emailConfig)});
+      if(r.ok){alert(t('common.saved'));loadEmailStatus();}
     }
-
     async function testEmail() {
-      emailTesting.value = true;
-      emailTestResult.value = null;
-      try {
-        const res = await fetch('/api/email/test', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(emailConfig)
-        });
-        emailTestResult.value = await res.json();
-      } catch (e) { emailTestResult.value = { success: false, error: e.message }; }
-      emailTesting.value = false;
+      emailTesting.value=true; emailTestResult.value=null;
+      try { const r=await fetch('/api/email/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(emailConfig)}); emailTestResult.value=await r.json(); }
+      catch(e) { emailTestResult.value={success:false,error:e.message}; }
+      emailTesting.value=false;
     }
 
-    watch(currentView, (v) => {
-      if (v === 'dashboard') fetchDashboard();
-      if (v === 'invoices') fetchInvoices();
-      if (v === 'export') fetchExports();
-      if (v === 'email') { loadEmailConfig_(); loadEmailStatus(); }
+    async function loadFeedback() { try { const r=await fetch('/api/feedback'); const d=await r.json(); feedbackContent.value=d.content||''; } catch{} }
+    async function submitFeedback() {
+      if(!fbMessage.value.trim()) return;
+      fbSubmitting.value=true;
+      try {
+        const r=await fetch('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:fbCategory.value,message:fbMessage.value})});
+        if(!r.ok) throw new Error((await r.json()).error);
+        fbMessage.value=''; alert(t('common.feedbackSaved')); loadFeedback();
+      } catch(e) { alert(t('common.error')+': '+e.message); }
+      fbSubmitting.value=false;
+    }
+
+    async function loadSettings() {
+      try { const r=await fetch('/api/settings'); const d=await r.json(); if(d.language) { locale.value=d.language; localStorage.setItem('invoiceclaw_lang',d.language); } } catch{}
+    }
+
+    watch(currentView, v => {
+      if(v==='dashboard') fetchDashboard();
+      if(v==='invoices') fetchInvoices();
+      if(v==='export') { fetchExports(); fetchBuyers(); }
+      if(v==='settings') { loadEmailConfig_(); loadEmailStatus(); }
+      if(v==='feedback') loadFeedback();
     });
 
-    onMounted(() => { fetchDashboard(); fetchInvoices(); });
+    onMounted(() => { loadSettings(); fetchDashboard(); fetchInvoices(); });
 
     return {
-      currentView, navItems, typeLabels, categories, invoices, totalCount, filters, totalPages,
-      showUpload, uploading, detailInv, dashStats, uploadForm, months,
-      packageMonth, packaging, packageResult, exports,
-      emailConfig, emailStatus, emailTesting, emailTestResult,
+      locale, t, setLocale, toggleLang, currentView, navItems,
+      typeLabelsMap, categories, typeLabel, dirLabel, reimbLabel, typeBadge, reimbBadge, fmtAmt,
+      invoices, totalCount, filters, totalPages, months, showUpload, uploading, detailInv, dashStats, uploadForm,
       fetchInvoices, debouncedFetch, fetchDashboard, resetFilters,
-      fmtAmt, typeLabel, reimbLabel, typeBadge, reimbBadge,
       toggleReimburse, viewInvoice, deleteInv,
-      handleFileSelect, handleDrop, submitUpload, attachInput, triggerAttach, handleAttach,
-      generatePackage, exportUrl, saveEmail, testEmail
+      handleFileSelect, handleDrop, attachInput, triggerAttach, handleAttach, submitUpload,
+      pkgFilters, packaging, packageResult, exports, buyerList, generatePackage, exportUrl,
+      emailConfig, emailStatus, emailTesting, emailTestResult, saveEmail, testEmail,
+      fbCategory, fbMessage, fbSubmitting, feedbackContent, submitFeedback,
     };
   }
 }).mount('#app');

@@ -6,7 +6,7 @@
 import express from 'express';
 import multer from 'multer';
 import { join, extname } from 'node:path';
-import { existsSync, mkdirSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, unlinkSync, readFileSync, appendFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 
@@ -16,7 +16,7 @@ import {
 import {
   startPoller, getPollerStatus, loadEmailConfig, saveEmailConfig, testEmailConnection
 } from './lib/email-poller.mjs';
-import { packageMonth, listExports } from './lib/packager.mjs';
+import { packageInvoices, listExports } from './lib/packager.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.INVOICECLAW_DATA || '/data';
@@ -58,6 +58,16 @@ app.get('/api/invoices', (req, res) => {
   try {
     const result = listInvoices(req.query);
     res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/invoices/buyers', (req, res) => {
+  try {
+    const db = getDb();
+    const rows = db.prepare(
+      `SELECT DISTINCT buyer_name FROM invoices WHERE buyer_name IS NOT NULL AND buyer_name != '' ORDER BY buyer_name`
+    ).all();
+    res.json(rows.map(r => r.buyer_name));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -214,7 +224,7 @@ app.get('/api/export', (req, res) => {
 
 app.post('/api/package', async (req, res) => {
   try {
-    const result = await packageMonth(req.body.month);
+    const result = await packageInvoices(req.body);
     res.json(result);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -230,6 +240,31 @@ app.get('/api/exports/:filename', (req, res) => {
   if (!existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   if (!req.params.filename.endsWith('.zip')) return res.status(400).json({ error: 'Invalid file' });
   res.download(filePath);
+});
+
+// --- Settings ---
+const SETTINGS_PATH = join(DATA_DIR, 'settings.json');
+
+function loadSettings() {
+  try { return JSON.parse(readFileSync(SETTINGS_PATH, 'utf-8')); }
+  catch { return { language: 'zh', invoiceStorePath: '' }; }
+}
+
+function saveSettings(s) {
+  writeFileSync(SETTINGS_PATH, JSON.stringify(s, null, 2));
+}
+
+app.get('/api/settings', (req, res) => {
+  res.json(loadSettings());
+});
+
+app.post('/api/settings', (req, res) => {
+  try {
+    const current = loadSettings();
+    const updated = { ...current, ...req.body };
+    saveSettings(updated);
+    res.json(updated);
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // --- Email config ---
@@ -281,6 +316,29 @@ app.post('/api/email/test', async (req, res) => {
 
 app.get('/api/email/status', (req, res) => {
   res.json(getPollerStatus());
+});
+
+// --- Feedback ---
+const FEEDBACK_PATH = join(DATA_DIR, 'feedback.md');
+
+app.get('/api/feedback', (req, res) => {
+  try {
+    if (!existsSync(FEEDBACK_PATH)) return res.json({ content: '' });
+    const content = readFileSync(FEEDBACK_PATH, 'utf-8');
+    res.json({ content });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/feedback', (req, res) => {
+  try {
+    const { category, message } = req.body;
+    if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
+    const cat = category || 'general';
+    const ts = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const entry = `\n## ${ts} | ${cat}\n\n${message.trim()}\n\n---\n`;
+    appendFileSync(FEEDBACK_PATH, entry);
+    res.json({ saved: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // --- SPA fallback ---
