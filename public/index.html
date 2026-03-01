@@ -82,6 +82,40 @@
             </div>
           </div>
         </div>
+
+        <div class="mt-6 bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold text-gray-700">{{ t('dash.emailActions') }}</h3>
+            <button @click="triggerEmailPoll" :disabled="pollTriggering"
+              class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+              {{ pollTriggering ? t('email.polling') : t('email.pollNow') }}
+            </button>
+          </div>
+          <div v-if="pendingInvoices.length === 0" class="text-sm text-gray-400 py-2">{{ t('dash.noPending') }}</div>
+          <div v-else>
+            <div class="text-sm text-gray-500 mb-2">{{ t('dash.pendingInvoices') }} ({{ pendingInvoices.length }})</div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead><tr class="text-left text-gray-500 border-b">
+                  <th class="py-2 pr-4">ID</th>
+                  <th class="py-2 pr-4">{{ t('dash.source') }}</th>
+                  <th class="py-2 pr-4">{{ t('col.file') }}</th>
+                  <th class="py-2 pr-4">{{ t('dash.note') }}</th>
+                  <th class="py-2">{{ t('inv.created') }}</th>
+                </tr></thead>
+                <tbody>
+                  <tr v-for="p in pendingInvoices" :key="p.id" class="border-b border-gray-50 hover:bg-gray-50">
+                    <td class="py-2 pr-4 font-mono text-gray-600">#{{ p.id }}</td>
+                    <td class="py-2 pr-4"><span class="px-2 py-0.5 rounded-full text-xs" :class="p.source==='email'?'bg-blue-50 text-blue-700':'bg-gray-100 text-gray-600'">{{ p.source || '-' }}</span></td>
+                    <td class="py-2 pr-4 text-gray-600 truncate max-w-[200px]" :title="p.file_path">{{ p.file_path ? p.file_path.split('/').pop() : '-' }}</td>
+                    <td class="py-2 pr-4 text-gray-500 truncate max-w-[300px]" :title="p.notes">{{ p.notes ? p.notes.substring(0, 60) : '-' }}</td>
+                    <td class="py-2 text-gray-400">{{ p.created_at }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- ========== Invoices ========== -->
@@ -533,6 +567,10 @@ const I18N = {
     'common.confirm_delete': '确定删除发票 #{id}?', 'common.uploadFailed': '上传失败',
     'common.attachFailed': '附加失败', 'common.packageFailed': '打包失败', 'common.saved': '已保存!',
     'common.feedbackSaved': '反馈已提交，感谢！',
+    'email.pollNow': '立即检查邮件', 'email.polling': '检查中...',
+    'email.pollDone': '检查完成', 'email.pollFail': '检查失败',
+    'dash.pendingInvoices': '待分析发票', 'dash.noPending': '没有待分析的发票',
+    'dash.emailActions': '邮件发票', 'dash.source': '来源', 'dash.note': '备注',
   },
   en: {
     'nav.dashboard': 'Dashboard', 'nav.invoices': 'Invoices', 'nav.export': 'Export',
@@ -574,6 +612,10 @@ const I18N = {
     'common.confirm_delete': 'Delete invoice #{id}?', 'common.uploadFailed': 'Upload failed',
     'common.attachFailed': 'Attach failed', 'common.packageFailed': 'Package failed', 'common.saved': 'Saved!',
     'common.feedbackSaved': 'Feedback submitted, thank you!',
+    'email.pollNow': 'Check Email Now', 'email.polling': 'Checking...',
+    'email.pollDone': 'Check complete', 'email.pollFail': 'Check failed',
+    'dash.pendingInvoices': 'Pending Invoices', 'dash.noPending': 'No pending invoices',
+    'dash.emailActions': 'Email Invoices', 'dash.source': 'Source', 'dash.note': 'Note',
   }
 };
 
@@ -742,6 +784,24 @@ createApp({
       emailTesting.value=false;
     }
 
+    const pollTriggering = ref(false);
+    const pendingInvoices = ref([]);
+    async function triggerEmailPoll() {
+      pollTriggering.value = true;
+      try {
+        const r = await fetch('/api/email/poll', { method: 'POST' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error);
+        Object.assign(emailStatus, d.status || {});
+        await fetchPending();
+        await fetchDashboard();
+      } catch(e) { alert(t('email.pollFail') + ': ' + e.message); }
+      pollTriggering.value = false;
+    }
+    async function fetchPending() {
+      try { const r = await fetch('/api/invoices/pending'); pendingInvoices.value = await r.json(); } catch {}
+    }
+
     async function loadFeedback() { try { const r=await fetch('/api/feedback'); const d=await r.json(); feedbackContent.value=d.content||''; } catch{} }
     async function submitFeedback() {
       if(!fbMessage.value.trim()) return;
@@ -759,14 +819,14 @@ createApp({
     }
 
     watch(currentView, v => {
-      if(v==='dashboard') fetchDashboard();
+      if(v==='dashboard') { fetchDashboard(); fetchPending(); }
       if(v==='invoices') fetchInvoices();
       if(v==='export') { fetchExports(); fetchBuyers(); }
       if(v==='settings') { loadEmailConfig_(); loadEmailStatus(); }
       if(v==='feedback') loadFeedback();
     });
 
-    onMounted(() => { loadSettings(); fetchDashboard(); fetchInvoices(); });
+    onMounted(() => { loadSettings(); fetchDashboard(); fetchInvoices(); fetchPending(); });
 
     return {
       locale, t, setLocale, toggleLang, currentView, navItems,
@@ -777,6 +837,7 @@ createApp({
       handleFileSelect, handleDrop, attachInput, triggerAttach, handleAttach, submitUpload,
       pkgFilters, packaging, packageResult, exports, buyerList, generatePackage, exportUrl,
       emailConfig, emailStatus, emailTesting, emailTestResult, saveEmail, testEmail,
+      pollTriggering, pendingInvoices, triggerEmailPoll,
       fbCategory, fbMessage, fbSubmitting, feedbackContent, submitFeedback,
     };
   }

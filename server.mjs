@@ -14,7 +14,7 @@ import {
   initDb, listInvoices, getInvoice, createInvoice, updateInvoice, deleteInvoice, getStats, getDb
 } from './lib/db.mjs';
 import {
-  startPoller, getPollerStatus, loadEmailConfig, saveEmailConfig, testEmailConnection
+  startPoller, getPollerStatus, loadEmailConfig, saveEmailConfig, testEmailConnection, pollOnce
 } from './lib/email-poller.mjs';
 import { packageInvoices, listExports } from './lib/packager.mjs';
 
@@ -316,6 +316,28 @@ app.post('/api/email/test', async (req, res) => {
 
 app.get('/api/email/status', (req, res) => {
   res.json(getPollerStatus());
+});
+
+app.post('/api/email/poll', async (req, res) => {
+  try {
+    const config = loadEmailConfig();
+    if (!config || !config.host) return res.status(400).json({ error: 'Email not configured' });
+    await pollOnce();
+    res.json({ success: true, status: getPollerStatus() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/invoices/pending', (req, res) => {
+  try {
+    const db = getDb();
+    const rows = db.prepare(
+      `SELECT id, invoice_type, source, file_path, vendor_name, notes, created_at
+       FROM invoices
+       WHERE (amount = 0 OR amount IS NULL) AND status = 'pending'
+       ORDER BY created_at DESC LIMIT 50`
+    ).all();
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // --- Feedback ---
