@@ -100,8 +100,9 @@ app.put('/api/invoices/:id', (req, res) => {
 
 app.delete('/api/invoices/:id', (req, res) => {
   const inv = getInvoice(parseInt(req.params.id));
-  if (inv && inv.file_path && existsSync(inv.file_path)) {
-    try { unlinkSync(inv.file_path); } catch {}
+  if (inv && inv.file_path) {
+    const resolved = resolveFilePath(inv.file_path);
+    if (resolved) { try { unlinkSync(resolved); } catch {} }
   }
   const ok = deleteInvoice(parseInt(req.params.id));
   res.json({ deleted: ok });
@@ -129,11 +130,30 @@ app.post('/api/invoices/:id/unreimburse', (req, res) => {
 
 // --- File serving ---
 
+function resolveFilePath(dbPath) {
+  if (!dbPath) return null;
+  if (existsSync(dbPath)) return dbPath;
+  const knownPrefixes = [
+    '/home/node/.openclaw/workspace/finance',
+    '/home/node/.openclaw/workspace/finance/',
+  ];
+  for (const prefix of knownPrefixes) {
+    if (dbPath.startsWith(prefix)) {
+      const relative = dbPath.slice(prefix.length).replace(/^\//, '');
+      const resolved = join(DATA_DIR, relative);
+      if (existsSync(resolved)) return resolved;
+    }
+  }
+  const basename = dbPath.split('/').pop();
+  return null;
+}
+
 app.get('/api/invoices/:id/file', (req, res) => {
   const inv = getInvoice(parseInt(req.params.id));
   if (!inv || !inv.file_path) return res.status(404).json({ error: 'No file' });
-  if (!existsSync(inv.file_path)) return res.status(404).json({ error: 'File missing' });
-  res.sendFile(inv.file_path);
+  const resolved = resolveFilePath(inv.file_path);
+  if (!resolved) return res.status(404).json({ error: 'File missing' });
+  res.sendFile(resolved);
 });
 
 // --- Stats ---
