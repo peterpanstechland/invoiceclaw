@@ -173,12 +173,20 @@
                 <td class="px-3 py-3 text-sm text-gray-600">#{{ inv.id }}</td>
                 <td class="px-3 py-3 text-sm">
                   <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="typeBadge(inv.invoice_type)">{{ typeLabel(inv.invoice_type) }}</span>
+                  <span v-if="inv.source === 'email'" class="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 text-indigo-600">📧</span>
                 </td>
                 <td class="px-3 py-3 text-sm">
                   <span :class="inv.direction==='inbound'?'text-blue-600':'text-green-600'" class="font-medium">{{ dirLabel(inv.direction) }}</span>
                 </td>
-                <td class="px-3 py-3 text-sm font-medium text-gray-800">¥{{ fmtAmt(inv.amount) }}</td>
-                <td class="px-3 py-3 text-sm text-gray-600 max-w-[160px] truncate">{{ inv.vendor_name || '-' }}</td>
+                <td class="px-3 py-3 text-sm font-medium text-gray-800">
+                  <template v-if="inv.amount && inv.amount > 0">¥{{ fmtAmt(inv.amount) }}</template>
+                  <span v-else class="text-gray-400 italic text-xs">{{ t('status.pending_short') }}</span>
+                </td>
+                <td class="px-3 py-3 text-sm text-gray-600 max-w-[200px] truncate" :title="pendingHint(inv) || inv.vendor_name || ''">
+                  <template v-if="inv.vendor_name">{{ inv.vendor_name }}</template>
+                  <span v-else-if="pendingHint(inv)" class="text-gray-400 italic text-xs">{{ pendingHint(inv) }}</span>
+                  <span v-else>-</span>
+                </td>
                 <td class="px-3 py-3 text-sm text-gray-600 max-w-[160px] truncate">{{ inv.buyer_name || '-' }}</td>
                 <td class="px-3 py-3 text-sm text-gray-500">{{ inv.invoice_date || '-' }}</td>
                 <td class="px-3 py-3 text-sm">
@@ -467,7 +475,7 @@
         </div>
 
         <!-- Poller Status -->
-        <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+        <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm mb-6">
           <h3 class="font-semibold text-gray-700 mb-3">{{ t('email.pollerStatus') }}</h3>
           <div class="text-sm space-y-1.5">
             <div><span class="text-gray-500">{{ t('email.running') }}:</span>
@@ -478,6 +486,27 @@
             <div><span class="text-gray-500">{{ t('email.processed') }}:</span> {{ emailStatus.processedCount || 0 }}</div>
             <div v-if="emailStatus.lastError" class="text-red-500">{{ t('common.error') }}: {{ emailStatus.lastError }}</div>
           </div>
+        </div>
+
+        <!-- GitHub -->
+        <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+          <h3 class="font-semibold text-gray-700 mb-4">{{ t('set.github') }}</h3>
+          <p class="text-xs text-gray-500 mb-3">{{ t('gh.desc') }}</p>
+          <form @submit.prevent="saveGithub" class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('gh.token') }}</label>
+              <input v-model="ghConfig.token" type="password" class="w-full border rounded-lg px-3 py-2 text-sm font-mono" placeholder="ghp_xxxxxxxxxxxx">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('gh.repo') }}</label>
+              <input v-model="ghConfig.repo" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="owner/repo">
+            </div>
+            <div class="flex items-center gap-4">
+              <label class="flex items-center gap-2 text-sm"><input v-model="ghConfig.enabled" type="checkbox"> {{ t('gh.enabled') }}</label>
+            </div>
+            <button type="submit" class="px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700">{{ t('common.save') }}</button>
+            <span v-if="ghSaveResult" class="ml-2 text-sm text-green-600">{{ t('common.saved') }}</span>
+          </form>
         </div>
       </div>
 
@@ -567,6 +596,10 @@ const I18N = {
     'common.confirm_delete': '确定删除发票 #{id}?', 'common.uploadFailed': '上传失败',
     'common.attachFailed': '附加失败', 'common.packageFailed': '打包失败', 'common.saved': '已保存!',
     'common.feedbackSaved': '反馈已提交，感谢！',
+    'status.pending_short': '待分析', 'status.email_source': '邮件',
+    'set.github': 'GitHub 集成', 'gh.desc': '启用后，提交反馈会自动在 GitHub 仓库创建 Issue，并带上对应标签。',
+    'gh.token': 'Personal Access Token', 'gh.repo': '仓库 (owner/repo)', 'gh.enabled': '启用',
+    'gh.created': '已创建 GitHub Issue', 'gh.failed': 'GitHub Issue 创建失败',
     'email.pollNow': '立即检查邮件', 'email.polling': '检查中...',
     'email.pollDone': '检查完成', 'email.pollFail': '检查失败',
     'dash.pendingInvoices': '待分析发票', 'dash.noPending': '没有待分析的发票',
@@ -612,6 +645,10 @@ const I18N = {
     'common.confirm_delete': 'Delete invoice #{id}?', 'common.uploadFailed': 'Upload failed',
     'common.attachFailed': 'Attach failed', 'common.packageFailed': 'Package failed', 'common.saved': 'Saved!',
     'common.feedbackSaved': 'Feedback submitted, thank you!',
+    'status.pending_short': 'Pending', 'status.email_source': 'Email',
+    'set.github': 'GitHub Integration', 'gh.desc': 'When enabled, feedback submissions will automatically create GitHub Issues with matching labels.',
+    'gh.token': 'Personal Access Token', 'gh.repo': 'Repository (owner/repo)', 'gh.enabled': 'Enabled',
+    'gh.created': 'GitHub Issue created', 'gh.failed': 'GitHub Issue creation failed',
     'email.pollNow': 'Check Email Now', 'email.polling': 'Checking...',
     'email.pollDone': 'Check complete', 'email.pollFail': 'Check failed',
     'dash.pendingInvoices': 'Pending Invoices', 'dash.noPending': 'No pending invoices',
@@ -656,6 +693,14 @@ createApp({
         reimbursed:'bg-green-100 text-green-700', rejected:'bg-red-100 text-red-700' }[s] || 'bg-gray-100 text-gray-700';
     }
     function fmtAmt(n) { return (n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+    function pendingHint(inv) {
+      if (inv.vendor_name || (inv.amount && inv.amount > 0)) return '';
+      if (!inv.notes && !inv.file_path) return '';
+      const subj = inv.notes?.replace(/^From:.*?,\s*Subject:\s*/i, '') || '';
+      if (subj) return subj.substring(0, 50);
+      const fname = inv.file_path?.split('/').pop().replace(/^\d+-/, '') || '';
+      return fname.replace(/\.\w+$/, '').substring(0, 50);
+    }
 
     const invoices = ref([]);
     const totalCount = ref(0);
@@ -690,6 +735,9 @@ createApp({
     const emailStatus = reactive({ running:false, lastCheck:null, nextCheck:null, processedCount:0, lastError:null });
     const emailTesting = ref(false);
     const emailTestResult = ref(null);
+
+    const ghConfig = reactive({ token:'', repo:'peterpanstechland/invoiceclaw', enabled:false });
+    const ghSaveResult = ref(false);
 
     const fbCategory = ref('feature_request');
     const fbMessage = ref('');
@@ -784,6 +832,17 @@ createApp({
       emailTesting.value=false;
     }
 
+    async function loadGithubConfig_() {
+      try {
+        const r = await fetch('/api/github/config'); const d = await r.json();
+        if (d.configured) Object.assign(ghConfig, { token: d.token || '', repo: d.repo || 'peterpanstechland/invoiceclaw', enabled: d.enabled !== false });
+      } catch {}
+    }
+    async function saveGithub() {
+      const r = await fetch('/api/github/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(ghConfig) });
+      if (r.ok) { ghSaveResult.value = true; setTimeout(() => ghSaveResult.value = false, 2000); }
+    }
+
     const pollTriggering = ref(false);
     const pendingInvoices = ref([]);
     async function triggerEmailPoll() {
@@ -816,7 +875,12 @@ createApp({
       try {
         const r=await fetch('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:fbCategory.value,message:fbMessage.value})});
         if(!r.ok) throw new Error((await r.json()).error);
-        fbMessage.value=''; alert(t('common.feedbackSaved')); loadFeedback();
+        const data = await r.json();
+        fbMessage.value='';
+        let msg = t('common.feedbackSaved');
+        if (data.github) msg += `\n\n${t('gh.created')}: #${data.github.number}\n${data.github.url}`;
+        alert(msg);
+        loadFeedback();
       } catch(e) { alert(t('common.error')+': '+e.message); }
       fbSubmitting.value=false;
     }
@@ -829,7 +893,7 @@ createApp({
       if(v==='dashboard') { fetchDashboard(); fetchPending(); }
       if(v==='invoices') fetchInvoices();
       if(v==='export') { fetchExports(); fetchBuyers(); }
-      if(v==='settings') { loadEmailConfig_(); loadEmailStatus(); }
+      if(v==='settings') { loadEmailConfig_(); loadEmailStatus(); loadGithubConfig_(); }
       if(v==='feedback') loadFeedback();
     });
 
@@ -837,7 +901,7 @@ createApp({
 
     return {
       locale, t, setLocale, toggleLang, currentView, navItems,
-      typeLabelsMap, categories, typeLabel, dirLabel, reimbLabel, typeBadge, reimbBadge, fmtAmt,
+      typeLabelsMap, categories, typeLabel, dirLabel, reimbLabel, typeBadge, reimbBadge, fmtAmt, pendingHint,
       invoices, totalCount, filters, totalPages, months, showUpload, uploading, detailInv, dashStats, uploadForm,
       fetchInvoices, debouncedFetch, fetchDashboard, resetFilters,
       toggleReimburse, viewInvoice, deleteInv,
@@ -845,6 +909,7 @@ createApp({
       pkgFilters, packaging, packageResult, exports, buyerList, generatePackage, exportUrl,
       emailConfig, emailStatus, emailTesting, emailTestResult, saveEmail, testEmail,
       pollTriggering, pendingInvoices, triggerEmailPoll,
+      ghConfig, ghSaveResult, saveGithub,
       fbCategory, fbMessage, fbSubmitting, feedbackContent, submitFeedback,
     };
   }

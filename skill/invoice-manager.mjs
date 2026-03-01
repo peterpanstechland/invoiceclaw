@@ -562,6 +562,26 @@ function listCategories() {
   for (const r of rows) console.log(`  ${r.category || 'uncategorized'}: ${r.count} invoices, ¥${r.total.toFixed(2)}`);
 }
 
+async function previewInvoice(id) {
+  const API_BASE = process.env.INVOICECLAW_API || 'http://invoiceclaw:3000';
+  try {
+    const resp = await fetch(`${API_BASE}/api/invoices/${id}/text`);
+    if (!resp.ok) { const e = await resp.json().catch(() => ({})); console.error('Error:', e.error || resp.statusText); return; }
+    const data = await resp.json();
+    if (data.type === 'image') {
+      console.log(`Invoice #${id} is an image file: ${data.source_file}`);
+      console.log(`Use your vision model to view: ${data.file_url}`);
+      return;
+    }
+    console.log(`Invoice #${id} — PDF: ${data.source_file} (${data.pages} page${data.pages > 1 ? 's' : ''})`);
+    console.log('─'.repeat(60));
+    console.log(data.text || '(no extractable text)');
+    console.log('─'.repeat(60));
+  } catch (e) {
+    console.error('Failed to preview:', e.message);
+  }
+}
+
 function getArg(args, flag) {
   const idx = args.indexOf(flag);
   return idx >= 0 && idx + 1 < args.length ? args[idx + 1] : null;
@@ -576,6 +596,7 @@ Commands:
   list [filters]                    List invoices
   pending [--source email] [--limit N]  List unanalyzed invoices (amount=0, status=pending)
   get <id>                          Get invoice detail
+  preview <id>                      Extract and display PDF text content
   update <id> --json '{...}'        Update invoice fields
   delete <id>                       Delete invoice
   reimburse <id>                    Mark as reimbursed
@@ -616,6 +637,10 @@ try {
     case 'get': {
       if (!args[0]) { console.log('Usage: get <id>'); process.exit(1); }
       getInvoice(args[0]); break;
+    }
+    case 'preview': case 'text': {
+      if (!args[0]) { console.log('Usage: preview <id>'); process.exit(1); }
+      await previewInvoice(args[0]); break;
     }
     case 'update': {
       const id = args[0], json = getArg(args, '--json');

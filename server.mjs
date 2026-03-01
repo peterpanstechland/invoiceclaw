@@ -17,12 +17,20 @@ import {
   startPoller, getPollerStatus, loadEmailConfig, saveEmailConfig, testEmailConnection, pollOnce
 } from './lib/email-poller.mjs';
 import { packageInvoices, listExports } from './lib/packager.mjs';
+import pdf from 'pdf-parse';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.INVOICECLAW_DATA || '/data';
 const INVOICES_DIR = join(DATA_DIR, 'invoices');
 const EXPORTS_DIR = join(DATA_DIR, 'exports');
 const PORT = parseInt(process.env.PORT) || 3000;
+
+process.on('uncaughtException', (err) => {
+  console.error('[server] Uncaught exception (kept alive):', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] Unhandled rejection (kept alive):', reason);
+});
 
 initDb();
 
@@ -193,7 +201,43 @@ app.get('/api/invoices/:id/file', (req, res) => {
   if (!inv || !inv.file_path) return res.status(404).json({ error: 'No file' });
   const resolved = resolveFilePath(inv.file_path);
   if (!resolved) return res.status(404).json({ error: 'File missing' });
+  const origName = inv.file_path.split('/').pop().replace(/^\d+-/, '');
+  const ext = extname(origName).toLowerCase();
+  const displayName = origName || `invoice-${inv.id}${ext || '.pdf'}`;
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(displayName)}`);
   res.sendFile(resolved);
+});
+
+app.get('/api/invoices/:id/text', async (req, res) => {
+  try {
+    const inv = getInvoice(parseInt(req.params.id));
+    if (!inv || !inv.file_path) return res.status(404).json({ error: 'No file' });
+    const resolved = resolveFilePath(inv.file_path);
+    if (!resolved) return res.status(404).json({ error: 'File missing' });
+
+    const ext = extname(resolved).toLowerCase();
+    if (ext === '.pdf') {
+      const buffer = readFileSync(resolved);
+      const data = await pdf(buffer);
+      res.json({
+        id: inv.id,
+        pages: data.numpages,
+        text: data.text,
+        metadata: data.info || {},
+        source_file: inv.file_path.split('/').pop().replace(/^\d+-/, ''),
+      });
+    } else {
+      res.json({
+        id: inv.id,
+        type: 'image',
+        message: 'This is an image file. Use vision model to analyze it.',
+        source_file: inv.file_path.split('/').pop().replace(/^\d+-/, ''),
+        file_url: `/api/invoices/${inv.id}/file`,
+      });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // --- Stats ---
@@ -348,6 +392,80 @@ app.post('/api/email/poll', async (req, res) => {
   }
 });
 
+// --- GitHub config ---
+const GITHUB_CONFIG_PATH = join(DATA_DIR, 'github-config.json');
+const GITHUB_REPO = 'peterpanstechland/invoiceclaw';
+const GITHUB_LABEL_MAP = {
+  feature: 'feature request',
+  feature_request: 'feature request',
+  bug: 'bug',
+  improvement: 'enhancement',
+  other: 'feedback',
+};
+
+function loadGithubConfig() {
+  if (!existsSync(GITHUB_CONFIG_PATH)) return null;
+  try { return JSON.parse(readFileSync(GITHUB_CONFIG_PATH, 'utf-8')); }
+  catch { return null; }
+}
+
+function saveGithubConfig(config) {
+  writeFileSync(GITHUB_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+}
+
+app.get('/api/github/config', (req, res) => {
+  const config = loadGithubConfig();
+  if (!config) return res.json({ configured: false });
+  res.json({
+    configured: true,
+    token: config.token ? '••••••••' + config.token.slice(-4) : '',
+    repo: config.repo || GITHUB_REPO,
+    enabled: config.enabled !== false,
+  });
+});
+
+app.post('/api/github/config', (req, res) => {
+  try {
+    const existing = loadGithubConfig();
+    const config = {
+      token: (req.body.token && !req.body.token.startsWith('••••')) ? req.body.token : existing?.token,
+      repo: req.body.repo || existing?.repo || GITHUB_REPO,
+      enabled: req.body.enabled !== false,
+    };
+    saveGithubConfig(config);
+    res.json({ saved: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+async function createGithubIssue(category, message) {
+  const config = loadGithubConfig();
+  if (!config?.token || !config.enabled) return null;
+
+  const repo = config.repo || GITHUB_REPO;
+  const label = GITHUB_LABEL_MAP[category] || 'feedback';
+  const title = message.trim().split('\n')[0].substring(0, 100);
+  const body = `**Category:** ${label}\n**Submitted from:** InvoiceClaw Web UI\n**Time:** ${new Date().toISOString()}\n\n---\n\n${message.trim()}`;
+
+  const resp = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${config.token}`,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title, body, labels: [label] }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.message || `GitHub API ${resp.status}`);
+  }
+
+  const issue = await resp.json();
+  return { number: issue.number, url: issue.html_url };
+}
+
 // --- Feedback ---
 const FEEDBACK_PATH = join(DATA_DIR, 'feedback.md');
 
@@ -359,15 +477,24 @@ app.get('/api/feedback', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/feedback', (req, res) => {
+app.post('/api/feedback', async (req, res) => {
   try {
     const { category, message } = req.body;
     if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
     const cat = category || 'general';
     const ts = new Date().toISOString().replace('T', ' ').slice(0, 16);
-    const entry = `\n## ${ts} | ${cat}\n\n${message.trim()}\n\n---\n`;
+
+    let ghIssue = null;
+    try {
+      ghIssue = await createGithubIssue(cat, message);
+    } catch (e) {
+      console.error('[feedback] GitHub issue creation failed:', e.message);
+    }
+
+    const ghNote = ghIssue ? ` → GitHub Issue #${ghIssue.number}` : '';
+    const entry = `\n## ${ts} | ${cat}${ghNote}\n\n${message.trim()}\n\n---\n`;
     appendFileSync(FEEDBACK_PATH, entry);
-    res.json({ saved: true });
+    res.json({ saved: true, github: ghIssue });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

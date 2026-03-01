@@ -41,7 +41,11 @@ Rules:
 - Transportation invoices -> almost always inbound
 - If unclear, ask: "这张发票是进项还是销项？"
 
-### Step 3: Extract fields via vision
+### Step 3: Extract fields
+
+**PDF files:** Use `node invoice-manager.mjs preview <id>` to extract text. Do NOT try to Read PDFs directly — they are binary files and will show garbled data.
+
+**Image files:** Use your vision capability to view the file.
 
 Read ALL visible fields. Required per type:
 
@@ -115,11 +119,20 @@ Send the zip file to the user via Telegram so they can forward it to their accou
 
 ## Processing Email Invoices
 
-The email poller automatically downloads invoice attachments from a configured inbox and creates **stub records** with `amount: 0`, `status: 'pending'`, `source: 'email'`. These need your analysis.
+### ⚠️ CRITICAL: Do NOT access the email inbox directly
+
+Email polling is handled **entirely by the InvoiceClaw background service**. You MUST NOT:
+- Connect to IMAP/POP3 servers
+- Write scripts to read emails (no `check-email.js`, no `ImapFlow`, etc.)
+- Access email credentials or `email-config.json`
+
+The InvoiceClaw service automatically polls the inbox, downloads attachments (PDF/images), and creates **stub records** in the database with `amount: 0`, `status: 'pending'`, `source: 'email'`.
+
+Your only job is to **analyze the already-downloaded files** using the `pending` command.
 
 ### When to check
 
-- When the user says "查看邮件发票" / "check email invoices" / "处理未分析的发票"
+- When the user says "查看邮件发票" / "check email invoices" / "处理未分析的发票" / "帮我看看邮箱里的发票"
 - Proactively: check once daily or when starting a new conversation session
 
 ### Workflow
@@ -130,8 +143,11 @@ node invoice-manager.mjs pending --source email
 ```
 This returns invoices that have `amount = 0` and `status = 'pending'`, including their `id`, `file_path`, and `notes` (email sender/subject).
 
+If no pending invoices are found, tell the user: "当前没有待分析的邮件发票。邮件轮询服务会自动检查收件箱，您也可以在 InvoiceClaw 管理页面手动触发检查。"
+
 2. **For each pending invoice:**
-   - View the file at `file_path` using your vision capability
+   - **PDF files:** Run `node invoice-manager.mjs preview <id>` to extract text content. Do NOT use the Read tool on PDFs — it will show garbled binary data.
+   - **Image files:** View the file at `file_path` using your vision capability.
    - Apply the same extraction logic from Steps 1-3 above (identify type, direction, extract fields)
    - Update the record:
 ```bash
@@ -162,6 +178,7 @@ node invoice-manager.mjs update <id> --json '{
 - If a file cannot be read or is not an invoice, set `"status": "rejected"` and add a note explaining why
 - The `notes` field from the stub record contains the email sender and subject — use this as context if the image is ambiguous
 - Do NOT re-process invoices that already have `status: 'verified'` or `status: 'rejected'`
+- Email configuration (IMAP server, credentials, poll interval) is managed through the InvoiceClaw web UI Settings page, NOT through the agent
 
 ## Query Patterns
 
@@ -184,6 +201,7 @@ node invoice-manager.mjs update <id> --json '{
 | `list [filters]` | List invoices |
 | `pending [--source email] [--limit N]` | List unanalyzed invoices |
 | `get <id>` | Invoice detail |
+| `preview <id>` | Extract and display PDF text content |
 | `update <id> --json '{...}'` | Update fields |
 | `delete <id>` | Delete |
 | `reimburse <id>` | Mark reimbursed |
