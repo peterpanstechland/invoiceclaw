@@ -789,13 +789,20 @@ createApp({
     async function triggerEmailPoll() {
       pollTriggering.value = true;
       try {
-        const r = await fetch('/api/email/poll', { method: 'POST' });
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 35000);
+        const r = await fetch('/api/email/poll', { method: 'POST', signal: controller.signal });
+        clearTimeout(timer);
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error);
-        Object.assign(emailStatus, d.status || {});
+        if (!r.ok && !d.timedOut) throw new Error(d.error);
+        if (d.status) Object.assign(emailStatus, d.status);
+        if (d.timedOut) alert(t('email.pollFail') + ': ' + d.error);
         await fetchPending();
         await fetchDashboard();
-      } catch(e) { alert(t('email.pollFail') + ': ' + e.message); }
+      } catch(e) {
+        if (e.name === 'AbortError') alert(t('email.pollFail') + ': timeout');
+        else alert(t('email.pollFail') + ': ' + e.message);
+      }
       pollTriggering.value = false;
     }
     async function fetchPending() {

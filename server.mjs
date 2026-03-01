@@ -335,9 +335,17 @@ app.post('/api/email/poll', async (req, res) => {
   try {
     const config = loadEmailConfig();
     if (!config || !config.host) return res.status(400).json({ error: 'Email not configured' });
-    await pollOnce();
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Poll timed out (30s)')), 30000));
+    await Promise.race([pollOnce(), timeout]);
     res.json({ success: true, status: getPollerStatus() });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    const status = getPollerStatus();
+    if (e.message.includes('timed out')) {
+      res.json({ success: false, timedOut: true, error: e.message, status });
+    } else {
+      res.status(500).json({ error: e.message, status });
+    }
+  }
 });
 
 // --- Feedback ---
