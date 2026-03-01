@@ -21,7 +21,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, existsSync, copyFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, existsSync, copyFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename, extname } from 'node:path';
 import { homedir } from 'node:os';
 import { execSync } from 'node:child_process';
@@ -102,14 +102,30 @@ function copyInvoiceFile(sourcePath, invoiceDate) {
   return destPath;
 }
 
+function findLatestMedia() {
+  const mediaDir = join(homedir(), '.openclaw', 'media', 'inbound');
+  if (!existsSync(mediaDir)) return null;
+  try {
+    const files = readdirSync(mediaDir)
+      .map(f => ({ name: f, mtime: statSync(join(mediaDir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    if (files.length === 0) return null;
+    const newest = files[0];
+    const ageSeconds = (Date.now() - newest.mtime) / 1000;
+    if (ageSeconds > 300) return null;
+    return join(mediaDir, newest.name);
+  } catch { return null; }
+}
+
 function addInvoice(jsonStr, filePath) {
   const data = JSON.parse(jsonStr);
   if (!data.invoice_type) throw new Error('invoice_type is required');
   if (!data.direction) throw new Error('direction is required');
   if (data.amount == null) throw new Error('amount is required');
 
-  if (filePath) {
-    const savedPath = copyInvoiceFile(filePath, data.invoice_date);
+  const sourceFile = filePath || findLatestMedia();
+  if (sourceFile) {
+    const savedPath = copyInvoiceFile(sourceFile, data.invoice_date);
     if (savedPath) data.file_path = savedPath;
   }
 
