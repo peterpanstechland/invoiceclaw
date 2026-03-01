@@ -55,14 +55,26 @@ Read ALL visible fields. Required per type:
 
 ### Step 4: Save file and store
 
-**Important**: Before calling the CLI, save the uploaded file so the original is preserved.
+**CRITICAL**: You MUST always save the original invoice file. Every invoice record MUST have a file attached.
 
-1. If the agent received the file as a path, use it directly with `--file`:
+When you receive an image or file from the user, OpenClaw saves it to `~/.openclaw/media/inbound/`. Before calling the CLI:
+
+1. List the received media to find the file path:
 ```bash
-node invoice-manager.mjs add --json '{...}' --file /path/to/received/file
+ls -t ~/.openclaw/media/inbound/ | head -5
 ```
 
-2. The CLI will copy the file to `invoices/YYYY/MM/` and record the path in the database.
+2. Use the most recent file that matches the upload. The full path will be like:
+`/home/node/.openclaw/media/inbound/file_0---<uuid>.jpg`
+
+3. **Always** pass `--file` when calling `add`:
+```bash
+node invoice-manager.mjs add --json '{...}' --file /home/node/.openclaw/media/inbound/file_0---xxxx.jpg
+```
+
+4. The CLI copies the file to `invoices/YYYY/MM/` and records the path in the database.
+
+**Never call `add` without `--file` when you received an image or PDF from the user.**
 
 ### Step 5: Assign category
 
