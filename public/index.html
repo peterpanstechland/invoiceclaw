@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InvoiceClaw - 发票管理</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    [v-cloak] { display: none; }
+    .fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
+    .fade-enter-from, .fade-leave-to { opacity: 0; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    .glass { background: rgba(255,255,255,0.8); backdrop-filter: blur(12px); }
+  </style>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#eff6ff', 100:'#dbeafe', 200:'#bfdbfe', 500:'#3b82f6', 600:'#2563eb', 700:'#1d4ed8' }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<div id="app" v-cloak>
+  <!-- Sidebar -->
+  <div class="flex h-screen">
+    <nav class="w-56 bg-white border-r border-gray-200 flex flex-col py-4 px-3 shrink-0">
+      <div class="flex items-center gap-2 px-2 mb-6">
+        <span class="text-2xl">📊</span>
+        <span class="font-bold text-lg text-gray-800">InvoiceClaw</span>
+      </div>
+      <div class="space-y-1 flex-1">
+        <button v-for="item in navItems" :key="item.id"
+          @click="currentView = item.id"
+          :class="['w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+            currentView === item.id ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
+          {{ item.icon }} {{ item.label }}
+        </button>
+      </div>
+      <div class="text-xs text-gray-400 px-2 mt-4">InvoiceClaw v1.0</div>
+    </nav>
+
+    <!-- Main -->
+    <main class="flex-1 overflow-auto">
+      <!-- Dashboard -->
+      <div v-if="currentView === 'dashboard'" class="p-6 max-w-6xl mx-auto">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6">Dashboard</h1>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+            <div class="text-sm text-gray-500 mb-1">Total Invoices</div>
+            <div class="text-2xl font-bold text-gray-800">{{ dashStats.totalCount }}</div>
+          </div>
+          <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+            <div class="text-sm text-gray-500 mb-1">进项总额</div>
+            <div class="text-2xl font-bold text-blue-600">¥{{ fmtAmt(dashStats.inboundTotal) }}</div>
+          </div>
+          <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+            <div class="text-sm text-gray-500 mb-1">销项总额</div>
+            <div class="text-2xl font-bold text-green-600">¥{{ fmtAmt(dashStats.outboundTotal) }}</div>
+          </div>
+          <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+            <div class="text-sm text-gray-500 mb-1">未报销</div>
+            <div class="text-2xl font-bold text-orange-500">¥{{ fmtAmt(dashStats.unreimbursedTotal) }}</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+            <h3 class="font-semibold text-gray-700 mb-3">By Type</h3>
+            <div v-for="t in dashStats.byType" :key="t.invoice_type" class="flex justify-between py-1.5 border-b border-gray-50">
+              <span class="text-sm text-gray-600">{{ typeLabel(t.invoice_type) }}</span>
+              <span class="text-sm font-medium">{{ t.count }} | ¥{{ fmtAmt(t.total) }}</span>
+            </div>
+          </div>
+          <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+            <h3 class="font-semibold text-gray-700 mb-3">By Category</h3>
+            <div v-for="c in dashStats.byCategory" :key="c.category" class="flex justify-between py-1.5 border-b border-gray-50">
+              <span class="text-sm text-gray-600">{{ c.category || 'uncategorized' }}</span>
+              <span class="text-sm font-medium">{{ c.count }} | ¥{{ fmtAmt(c.total) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Invoice List -->
+      <div v-if="currentView === 'invoices'" class="p-6 max-w-7xl mx-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h1 class="text-2xl font-bold text-gray-800">Invoices</h1>
+          <button @click="showUpload = true" class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">
+            + Upload
+          </button>
+        </div>
+
+        <!-- Filters -->
+        <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm mb-4 flex flex-wrap gap-3">
+          <input v-model="filters.search" @input="debouncedFetch" placeholder="Search..." class="border rounded-lg px-3 py-1.5 text-sm w-40">
+          <select v-model="filters.month" @change="fetchInvoices" class="border rounded-lg px-3 py-1.5 text-sm">
+            <option value="">All months</option>
+            <option v-for="m in months" :key="m" :value="m">{{ m }}</option>
+          </select>
+          <select v-model="filters.type" @change="fetchInvoices" class="border rounded-lg px-3 py-1.5 text-sm">
+            <option value="">All types</option>
+            <option v-for="(l,k) in typeLabels" :key="k" :value="k">{{ l }}</option>
+          </select>
+          <select v-model="filters.direction" @change="fetchInvoices" class="border rounded-lg px-3 py-1.5 text-sm">
+            <option value="">All directions</option>
+            <option value="inbound">进项</option>
+            <option value="outbound">销项</option>
+          </select>
+          <select v-model="filters.reimbursement" @change="fetchInvoices" class="border rounded-lg px-3 py-1.5 text-sm">
+            <option value="">All status</option>
+            <option value="unreimbursed">未报销</option>
+            <option value="submitted">已提交</option>
+            <option value="reimbursed">已报销</option>
+            <option value="rejected">被驳回</option>
+          </select>
+          <button @click="resetFilters" class="text-sm text-gray-500 hover:text-gray-700">Reset</button>
+        </div>
+
+        <!-- Table -->
+        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <table class="w-full">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Direction</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reimb.</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-50">
+              <tr v-for="inv in invoices" :key="inv.id" class="hover:bg-gray-50 transition-colors">
+                <td class="px-4 py-3 text-sm text-gray-600">#{{ inv.id }}</td>
+                <td class="px-4 py-3 text-sm">
+                  <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                    :class="typeBadge(inv.invoice_type)">{{ typeLabel(inv.invoice_type) }}</span>
+                </td>
+                <td class="px-4 py-3 text-sm">
+                  <span :class="inv.direction==='inbound' ? 'text-blue-600' : 'text-green-600'" class="font-medium">
+                    {{ inv.direction === 'inbound' ? '进项' : '销项' }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-sm font-medium text-gray-800">¥{{ fmtAmt(inv.amount) }}</td>
+                <td class="px-4 py-3 text-sm text-gray-600 max-w-[200px] truncate">{{ inv.vendor_name || '-' }}</td>
+                <td class="px-4 py-3 text-sm text-gray-500">{{ inv.invoice_date || '-' }}</td>
+                <td class="px-4 py-3">
+                  <button @click="toggleReimburse(inv)"
+                    :class="['px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer transition-colors',
+                      reimbBadge(inv.reimbursement_status)]">
+                    {{ reimbLabel(inv.reimbursement_status) }}
+                  </button>
+                </td>
+                <td class="px-4 py-3 text-sm">
+                  <div class="flex gap-1">
+                    <button @click="viewInvoice(inv)" class="p-1.5 rounded hover:bg-gray-100" title="View">
+                      <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                    </button>
+                    <a v-if="inv.file_path" :href="'/api/invoices/'+inv.id+'/file'" target="_blank" class="p-1.5 rounded hover:bg-gray-100" title="File">
+                      <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    </a>
+                    <button @click="deleteInv(inv)" class="p-1.5 rounded hover:bg-red-50" title="Delete">
+                      <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="invoices.length === 0">
+                <td colspan="8" class="px-4 py-12 text-center text-gray-400">No invoices found</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div v-if="totalPages > 1" class="flex justify-center gap-2 mt-4">
+          <button v-for="p in totalPages" :key="p" @click="filters.page = p; fetchInvoices()"
+            :class="['px-3 py-1 rounded text-sm', filters.page === p ? 'bg-brand-600 text-white' : 'bg-white border hover:bg-gray-50']">
+            {{ p }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Upload Modal -->
+      <div v-if="showUpload" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showUpload=false">
+        <div class="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl">
+          <h2 class="text-lg font-bold text-gray-800 mb-4">Upload Invoice</h2>
+          <form @submit.prevent="submitUpload" class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">File</label>
+              <div class="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center hover:border-brand-300 transition-colors"
+                @dragover.prevent @drop.prevent="handleDrop">
+                <input type="file" ref="fileInput" @change="handleFileSelect" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" class="hidden">
+                <div v-if="!uploadForm.file" @click="$refs.fileInput.click()" class="cursor-pointer">
+                  <div class="text-gray-400 text-3xl mb-2">📎</div>
+                  <div class="text-sm text-gray-500">Drop file here or click to browse</div>
+                </div>
+                <div v-else class="text-sm text-gray-700">{{ uploadForm.file.name }} ({{ (uploadForm.file.size/1024).toFixed(1) }}KB)</div>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <select v-model="uploadForm.invoice_type" required class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option v-for="(l,k) in typeLabels" :key="k" :value="k">{{ l }}</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Direction</label>
+                <select v-model="uploadForm.direction" required class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="inbound">进项 (Inbound)</option>
+                  <option value="outbound">销项 (Outbound)</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Amount (¥)</label>
+                <input v-model="uploadForm.amount" type="number" step="0.01" required class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                <input v-model="uploadForm.invoice_date" type="date" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
+              <input v-model="uploadForm.vendor_name" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="开票方名称">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
+                <input v-model="uploadForm.invoice_number" class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <select v-model="uploadForm.category" class="w-full border rounded-lg px-3 py-2 text-sm">
+                  <option value="">Select...</option>
+                  <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+              <input v-model="uploadForm.notes" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="备注">
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+              <button type="button" @click="showUpload=false" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+              <button type="submit" :disabled="uploading" class="px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700 disabled:opacity-50">
+                {{ uploading ? 'Uploading...' : 'Save' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Detail Modal -->
+      <div v-if="detailInv" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="detailInv=null">
+        <div class="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-auto">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-bold text-gray-800">Invoice #{{ detailInv.id }}</h2>
+            <button @click="detailInv=null" class="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+          </div>
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div><span class="text-gray-500">Type:</span> {{ typeLabel(detailInv.invoice_type) }}</div>
+            <div><span class="text-gray-500">Direction:</span> {{ detailInv.direction === 'inbound' ? '进项' : '销项' }}</div>
+            <div><span class="text-gray-500">Amount:</span> <span class="font-bold">¥{{ fmtAmt(detailInv.amount) }}</span></div>
+            <div><span class="text-gray-500">Tax:</span> ¥{{ fmtAmt(detailInv.tax_amount) }}</div>
+            <div><span class="text-gray-500">Vendor:</span> {{ detailInv.vendor_name || '-' }}</div>
+            <div><span class="text-gray-500">Buyer:</span> {{ detailInv.buyer_name || '-' }}</div>
+            <div><span class="text-gray-500">Invoice #:</span> {{ detailInv.invoice_number || '-' }}</div>
+            <div><span class="text-gray-500">Invoice Code:</span> {{ detailInv.invoice_code || '-' }}</div>
+            <div><span class="text-gray-500">Date:</span> {{ detailInv.invoice_date || '-' }}</div>
+            <div><span class="text-gray-500">Category:</span> {{ detailInv.category || '-' }}</div>
+            <div><span class="text-gray-500">Status:</span> {{ detailInv.status }}</div>
+            <div><span class="text-gray-500">Reimbursement:</span> {{ reimbLabel(detailInv.reimbursement_status) }}</div>
+            <div><span class="text-gray-500">Source:</span> {{ detailInv.source }}</div>
+            <div><span class="text-gray-500">Created:</span> {{ detailInv.created_at }}</div>
+          </div>
+          <div v-if="detailInv.notes" class="mt-3 text-sm"><span class="text-gray-500">Notes:</span> {{ detailInv.notes }}</div>
+          <div v-if="detailInv.extra_fields && typeof detailInv.extra_fields === 'object'" class="mt-3">
+            <div class="text-sm text-gray-500 mb-1">Extra Fields:</div>
+            <div class="bg-gray-50 rounded-lg p-3 text-sm">
+              <div v-for="(v,k) in detailInv.extra_fields" :key="k">
+                <span class="text-gray-500">{{ k }}:</span> {{ v }}
+              </div>
+            </div>
+          </div>
+          <div v-if="detailInv.file_path" class="mt-4">
+            <a :href="'/api/invoices/'+detailInv.id+'/file'" target="_blank"
+              class="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 transition-colors">
+              📎 View Original File
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Export -->
+      <div v-if="currentView === 'export'" class="p-6 max-w-3xl mx-auto">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6">Export & Package</h1>
+        <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm mb-6">
+          <h3 class="font-semibold text-gray-700 mb-4">Monthly Package</h3>
+          <p class="text-sm text-gray-500 mb-4">Generate a zip containing all invoice files + summary CSV for a specific month.</p>
+          <div class="flex gap-3 items-end">
+            <div>
+              <label class="block text-sm text-gray-600 mb-1">Month</label>
+              <input v-model="packageMonth" type="month" class="border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <button @click="generatePackage" :disabled="packaging"
+              class="px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700 disabled:opacity-50">
+              {{ packaging ? 'Generating...' : 'Generate Zip' }}
+            </button>
+          </div>
+          <div v-if="packageResult" class="mt-3 p-3 bg-green-50 text-green-700 rounded-lg text-sm">
+            Package ready: {{ packageResult.count }} invoices, {{ packageResult.fileCount }} files
+            <a :href="'/api/exports/'+packageResult.filename" class="ml-2 underline font-medium">Download</a>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm mb-6">
+          <h3 class="font-semibold text-gray-700 mb-4">CSV / JSON Export</h3>
+          <div class="flex gap-3">
+            <a :href="exportUrl('csv')" class="px-4 py-2 bg-gray-100 text-sm rounded-lg hover:bg-gray-200">Export CSV</a>
+            <a :href="exportUrl('json')" class="px-4 py-2 bg-gray-100 text-sm rounded-lg hover:bg-gray-200">Export JSON</a>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+          <h3 class="font-semibold text-gray-700 mb-4">Previous Exports</h3>
+          <div v-if="exports.length === 0" class="text-sm text-gray-400">No exports yet</div>
+          <div v-for="e in exports" :key="e.filename" class="flex justify-between items-center py-2 border-b border-gray-50">
+            <span class="text-sm">{{ e.filename }}</span>
+            <div class="flex items-center gap-3">
+              <span class="text-xs text-gray-400">{{ (e.size/1024).toFixed(0) }}KB</span>
+              <a :href="'/api/exports/'+e.filename" class="text-sm text-brand-600 hover:underline">Download</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Email Settings -->
+      <div v-if="currentView === 'email'" class="p-6 max-w-2xl mx-auto">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6">Email Settings</h1>
+        <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm mb-6">
+          <h3 class="font-semibold text-gray-700 mb-4">IMAP Configuration</h3>
+          <form @submit.prevent="saveEmail" class="space-y-3">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">IMAP Host</label>
+                <input v-model="emailConfig.host" required class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="imap.example.com">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Port</label>
+                <input v-model="emailConfig.port" type="number" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="993">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                <input v-model="emailConfig.user" required class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="user@example.com">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <input v-model="emailConfig.pass" type="password" required class="w-full border rounded-lg px-3 py-2 text-sm">
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Folder</label>
+                <input v-model="emailConfig.folder" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="INBOX">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Poll Interval (min)</label>
+                <input v-model="emailConfig.pollInterval" type="number" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="15">
+              </div>
+              <div class="flex items-end gap-4 pb-1">
+                <label class="flex items-center gap-2 text-sm">
+                  <input v-model="emailConfig.secure" type="checkbox"> SSL/TLS
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input v-model="emailConfig.enabled" type="checkbox"> Enabled
+                </label>
+              </div>
+            </div>
+            <div class="flex gap-2 pt-2">
+              <button type="submit" class="px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700">Save</button>
+              <button type="button" @click="testEmail" :disabled="emailTesting"
+                class="px-4 py-2 bg-gray-100 text-sm rounded-lg hover:bg-gray-200 disabled:opacity-50">
+                {{ emailTesting ? 'Testing...' : 'Test Connection' }}
+              </button>
+            </div>
+          </form>
+          <div v-if="emailTestResult" class="mt-3 p-3 rounded-lg text-sm"
+            :class="emailTestResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'">
+            {{ emailTestResult.success ? 'Connection successful! ' + emailTestResult.exists + ' messages in folder.' : 'Failed: ' + emailTestResult.error }}
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+          <h3 class="font-semibold text-gray-700 mb-3">Poller Status</h3>
+          <div class="text-sm space-y-1.5">
+            <div><span class="text-gray-500">Running:</span>
+              <span :class="emailStatus.running ? 'text-green-600' : 'text-gray-400'">{{ emailStatus.running ? 'Yes' : 'No' }}</span>
+            </div>
+            <div><span class="text-gray-500">Last check:</span> {{ emailStatus.lastCheck || 'Never' }}</div>
+            <div><span class="text-gray-500">Next check:</span> {{ emailStatus.nextCheck || '-' }}</div>
+            <div><span class="text-gray-500">Processed:</span> {{ emailStatus.processedCount || 0 }} attachments</div>
+            <div v-if="emailStatus.lastError" class="text-red-500">Error: {{ emailStatus.lastError }}</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, onMounted, watch } = Vue;
+
+createApp({
+  setup() {
+    const currentView = ref('dashboard');
+    const navItems = [
+      { id: 'dashboard', icon: '📊', label: 'Dashboard' },
+      { id: 'invoices', icon: '🧾', label: 'Invoices' },
+      { id: 'export', icon: '📦', label: 'Export' },
+      { id: 'email', icon: '📧', label: 'Email Settings' }
+    ];
+
+    const typeLabels = {
+      rail_ticket: '高铁票', general_invoice: '普通发票', ride_hailing: '网约车',
+      taxi_receipt: '出租车票', vat_special: '专用发票', other: '其他'
+    };
+    const categories = ['transportation', 'dining', 'office', 'equipment', 'service', 'accommodation', 'communication', 'other'];
+
+    const invoices = ref([]);
+    const totalCount = ref(0);
+    const filters = reactive({ page: 1, month: '', type: '', direction: '', reimbursement: '', search: '' });
+    const showUpload = ref(false);
+    const uploading = ref(false);
+    const detailInv = ref(null);
+
+    const dashStats = reactive({
+      totalCount: 0, inboundTotal: 0, outboundTotal: 0, unreimbursedTotal: 0,
+      byType: [], byCategory: []
+    });
+
+    const uploadForm = reactive({
+      invoice_type: 'general_invoice', direction: 'inbound', amount: '', invoice_date: '',
+      vendor_name: '', invoice_number: '', category: '', notes: '', file: null
+    });
+
+    const months = computed(() => {
+      const ms = [];
+      const now = new Date();
+      for (let i = 0; i < 12; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        ms.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+      }
+      return ms;
+    });
+
+    const totalPages = computed(() => Math.ceil(totalCount.value / 50));
+
+    const packageMonth = ref('');
+    const packaging = ref(false);
+    const packageResult = ref(null);
+    const exports = ref([]);
+
+    const emailConfig = reactive({
+      host: '', port: 993, user: '', pass: '', secure: true,
+      folder: 'INBOX', pollInterval: 15, enabled: false, markRead: true
+    });
+    const emailStatus = reactive({ running: false, lastCheck: null, nextCheck: null, processedCount: 0, lastError: null });
+    const emailTesting = ref(false);
+    const emailTestResult = ref(null);
+
+    async function fetchInvoices() {
+      const params = new URLSearchParams();
+      for (const [k,v] of Object.entries(filters)) { if (v) params.set(k, v); }
+      const res = await fetch('/api/invoices?' + params);
+      const data = await res.json();
+      invoices.value = data.invoices || [];
+      totalCount.value = data.total || 0;
+    }
+
+    let debounceTimer;
+    function debouncedFetch() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(fetchInvoices, 300);
+    }
+
+    async function fetchDashboard() {
+      const res = await fetch('/api/stats');
+      const stats = await res.json();
+
+      let tc = 0, it = 0, ot = 0;
+      for (const d of (stats.byDirection || [])) {
+        tc += d.count;
+        if (d.direction === 'inbound') it = d.total_amount;
+        if (d.direction === 'outbound') ot = d.total_amount;
+      }
+      dashStats.totalCount = tc;
+      dashStats.inboundTotal = it;
+      dashStats.outboundTotal = ot;
+
+      let ut = 0;
+      for (const r of (stats.byReimbursement || [])) {
+        if (r.reimbursement_status === 'unreimbursed') ut = r.total;
+      }
+      dashStats.unreimbursedTotal = ut;
+      dashStats.byType = stats.byType || [];
+      dashStats.byCategory = stats.byCategory || [];
+    }
+
+    function resetFilters() {
+      Object.assign(filters, { page: 1, month: '', type: '', direction: '', reimbursement: '', search: '' });
+      fetchInvoices();
+    }
+
+    function fmtAmt(n) { return (n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+    function typeLabel(t) { return typeLabels[t] || t; }
+    function reimbLabel(s) { return { unreimbursed:'未报销', submitted:'已提交', reimbursed:'已报销', rejected:'被驳回' }[s] || s || '未报销'; }
+    function typeBadge(t) {
+      return { rail_ticket:'bg-purple-100 text-purple-700', general_invoice:'bg-blue-100 text-blue-700',
+        ride_hailing:'bg-cyan-100 text-cyan-700', taxi_receipt:'bg-yellow-100 text-yellow-700',
+        vat_special:'bg-red-100 text-red-700', other:'bg-gray-100 text-gray-700' }[t] || 'bg-gray-100 text-gray-700';
+    }
+    function reimbBadge(s) {
+      return { unreimbursed:'bg-orange-100 text-orange-700', submitted:'bg-blue-100 text-blue-700',
+        reimbursed:'bg-green-100 text-green-700', rejected:'bg-red-100 text-red-700' }[s] || 'bg-gray-100 text-gray-700';
+    }
+
+    async function toggleReimburse(inv) {
+      const endpoint = inv.reimbursement_status === 'reimbursed' ? 'unreimburse' : 'reimburse';
+      await fetch(`/api/invoices/${inv.id}/${endpoint}`, { method: 'POST' });
+      fetchInvoices();
+      fetchDashboard();
+    }
+
+    function viewInvoice(inv) { detailInv.value = inv; }
+
+    async function deleteInv(inv) {
+      if (!confirm(`Delete invoice #${inv.id}?`)) return;
+      await fetch(`/api/invoices/${inv.id}`, { method: 'DELETE' });
+      fetchInvoices();
+      fetchDashboard();
+    }
+
+    function handleFileSelect(e) { uploadForm.file = e.target.files[0]; }
+    function handleDrop(e) { uploadForm.file = e.dataTransfer.files[0]; }
+
+    async function submitUpload() {
+      uploading.value = true;
+      try {
+        const fd = new FormData();
+        if (uploadForm.file) fd.append('file', uploadForm.file);
+        for (const k of ['invoice_type','direction','amount','invoice_date','vendor_name','invoice_number','category','notes']) {
+          if (uploadForm[k]) fd.append(k, uploadForm[k]);
+        }
+        const res = await fetch('/api/invoices', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error((await res.json()).error);
+        showUpload.value = false;
+        Object.assign(uploadForm, { invoice_type:'general_invoice', direction:'inbound', amount:'', invoice_date:'', vendor_name:'', invoice_number:'', category:'', notes:'', file:null });
+        fetchInvoices();
+        fetchDashboard();
+      } catch (e) { alert('Upload failed: ' + e.message); }
+      uploading.value = false;
+    }
+
+    async function generatePackage() {
+      if (!packageMonth.value) return;
+      packaging.value = true;
+      packageResult.value = null;
+      try {
+        const m = packageMonth.value.slice(0, 7);
+        const res = await fetch('/api/package', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ month: m })
+        });
+        if (!res.ok) throw new Error((await res.json()).error);
+        packageResult.value = await res.json();
+        fetchExports();
+      } catch (e) { alert('Package failed: ' + e.message); }
+      packaging.value = false;
+    }
+
+    async function fetchExports() {
+      const res = await fetch('/api/exports');
+      exports.value = await res.json();
+    }
+
+    function exportUrl(format) {
+      const params = new URLSearchParams();
+      params.set('format', format);
+      if (filters.month) params.set('month', filters.month);
+      return '/api/export?' + params;
+    }
+
+    async function loadEmailConfig_() {
+      const res = await fetch('/api/email/config');
+      const data = await res.json();
+      if (data.configured) {
+        Object.assign(emailConfig, {
+          host: data.host || '', port: data.port || 993, user: data.user || '',
+          pass: data.pass || '', secure: data.secure !== false, folder: data.folder || 'INBOX',
+          pollInterval: data.pollInterval || 15, enabled: data.enabled !== false, markRead: data.markRead !== false
+        });
+      }
+    }
+
+    async function loadEmailStatus() {
+      const res = await fetch('/api/email/status');
+      Object.assign(emailStatus, await res.json());
+    }
+
+    async function saveEmail() {
+      const res = await fetch('/api/email/config', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(emailConfig)
+      });
+      if (res.ok) { alert('Saved!'); loadEmailStatus(); }
+    }
+
+    async function testEmail() {
+      emailTesting.value = true;
+      emailTestResult.value = null;
+      try {
+        const res = await fetch('/api/email/test', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(emailConfig)
+        });
+        emailTestResult.value = await res.json();
+      } catch (e) { emailTestResult.value = { success: false, error: e.message }; }
+      emailTesting.value = false;
+    }
+
+    watch(currentView, (v) => {
+      if (v === 'dashboard') fetchDashboard();
+      if (v === 'invoices') fetchInvoices();
+      if (v === 'export') fetchExports();
+      if (v === 'email') { loadEmailConfig_(); loadEmailStatus(); }
+    });
+
+    onMounted(() => { fetchDashboard(); fetchInvoices(); });
+
+    return {
+      currentView, navItems, typeLabels, categories, invoices, totalCount, filters, totalPages,
+      showUpload, uploading, detailInv, dashStats, uploadForm, months,
+      packageMonth, packaging, packageResult, exports,
+      emailConfig, emailStatus, emailTesting, emailTestResult,
+      fetchInvoices, debouncedFetch, fetchDashboard, resetFilters,
+      fmtAmt, typeLabel, reimbLabel, typeBadge, reimbBadge,
+      toggleReimburse, viewInvoice, deleteInv,
+      handleFileSelect, handleDrop, submitUpload,
+      generatePackage, exportUrl, saveEmail, testEmail
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
