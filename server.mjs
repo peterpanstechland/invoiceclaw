@@ -71,6 +71,19 @@ app.get('/api/invoices/buyers', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/invoices/pending', (req, res) => {
+  try {
+    const db = getDb();
+    const rows = db.prepare(
+      `SELECT id, invoice_type, source, file_path, vendor_name, notes, created_at
+       FROM invoices
+       WHERE (amount = 0 OR amount IS NULL) AND status = 'pending'
+       ORDER BY created_at DESC LIMIT 50`
+    ).all();
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/invoices/:id', (req, res) => {
   const inv = getInvoice(parseInt(req.params.id));
   if (!inv) return res.status(404).json({ error: 'Not found' });
@@ -324,19 +337,6 @@ app.post('/api/email/poll', async (req, res) => {
     if (!config || !config.host) return res.status(400).json({ error: 'Email not configured' });
     await pollOnce();
     res.json({ success: true, status: getPollerStatus() });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.get('/api/invoices/pending', (req, res) => {
-  try {
-    const db = getDb();
-    const rows = db.prepare(
-      `SELECT id, invoice_type, source, file_path, vendor_name, notes, created_at
-       FROM invoices
-       WHERE (amount = 0 OR amount IS NULL) AND status = 'pending'
-       ORDER BY created_at DESC LIMIT 50`
-    ).all();
-    res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
