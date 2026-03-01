@@ -631,10 +631,12 @@ createApp({
     });
     const totalPages = computed(() => Math.ceil(totalCount.value/50));
 
+    function localDateStr(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
     const now = new Date();
+    const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0);
     const pkgFilters = reactive({
       startDate: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`,
-      endDate: new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10),
+      endDate: localDateStr(lastDay),
       buyer: '', direction: ''
     });
     const packaging = ref(false);

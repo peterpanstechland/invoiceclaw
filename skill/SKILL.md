@@ -113,9 +113,60 @@ This creates a zip at `exports/YYYY-MM-发票汇总.zip` containing:
 
 Send the zip file to the user via Telegram so they can forward it to their accountant.
 
+## Processing Email Invoices
+
+The email poller automatically downloads invoice attachments from a configured inbox and creates **stub records** with `amount: 0`, `status: 'pending'`, `source: 'email'`. These need your analysis.
+
+### When to check
+
+- When the user says "查看邮件发票" / "check email invoices" / "处理未分析的发票"
+- Proactively: check once daily or when starting a new conversation session
+
+### Workflow
+
+1. **List pending invoices:**
+```bash
+node invoice-manager.mjs pending --source email
+```
+This returns invoices that have `amount = 0` and `status = 'pending'`, including their `id`, `file_path`, and `notes` (email sender/subject).
+
+2. **For each pending invoice:**
+   - View the file at `file_path` using your vision capability
+   - Apply the same extraction logic from Steps 1-3 above (identify type, direction, extract fields)
+   - Update the record:
+```bash
+node invoice-manager.mjs update <id> --json '{
+  "invoice_type": "general_invoice",
+  "direction": "inbound",
+  "amount": 1280.00,
+  "tax_amount": 76.80,
+  "vendor_name": "某某公司",
+  "buyer_name": "我方公司",
+  "invoice_date": "2026-01-15",
+  "invoice_number": "12345678",
+  "status": "verified"
+}'
+```
+
+3. **Report results** to the user:
+```
+📧 邮件发票处理完成
+已分析: 3 张  |  跳过: 0 张
+  #42 | 普通发票 | 进项 | ¥1,280.00 | 某某公司
+  #43 | 高铁票   | 进项 | ¥553.00   | 铁路客运
+  #44 | 网约车   | 进项 | ¥28.50    | 高德打车
+```
+
+### Important notes
+
+- If a file cannot be read or is not an invoice, set `"status": "rejected"` and add a note explaining why
+- The `notes` field from the stub record contains the email sender and subject — use this as context if the image is ambiguous
+- Do NOT re-process invoices that already have `status: 'verified'` or `status: 'rejected'`
+
 ## Query Patterns
 
 - "本月发票" -> `list --month 2026-01`
+- "查看未分析发票" -> `pending` or `pending --source email`
 - "本月交通费" -> `list --month 2026-01 --category transportation`
 - "Q1进项汇总" -> `stats --quarter 1 --direction inbound`
 - "找龙深运输的发票" -> `search 龙深运输`
@@ -131,6 +182,7 @@ Send the zip file to the user via Telegram so they can forward it to their accou
 | `init` | Initialize database |
 | `add --json '{...}' [--file path]` | Add invoice with optional file |
 | `list [filters]` | List invoices |
+| `pending [--source email] [--limit N]` | List unanalyzed invoices |
 | `get <id>` | Invoice detail |
 | `update <id> --json '{...}'` | Update fields |
 | `delete <id>` | Delete |
@@ -143,7 +195,7 @@ Send the zip file to the user via Telegram so they can forward it to their accou
 | `search <keyword>` | Search |
 | `categories` | List categories |
 
-Filters: `--month`, `--quarter`, `--year`, `--type`, `--direction`, `--category`, `--status`, `--reimbursement`, `--vendor`, `--limit`
+Filters: `--month`, `--quarter`, `--year`, `--type`, `--direction`, `--category`, `--status`, `--reimbursement`, `--vendor`, `--source`, `--limit`
 
 ## Rules
 

@@ -212,6 +212,9 @@ function buildWhereClause(args) {
   const vendor = getArg(args, '--vendor');
   if (vendor) { conditions.push('vendor_name LIKE ?'); params.push(`%${vendor}%`); }
 
+  const source = getArg(args, '--source');
+  if (source) { conditions.push('source = ?'); params.push(source); }
+
   const where = conditions.length ? ' WHERE ' + conditions.join(' AND ') : '';
   return { where, params };
 }
@@ -248,6 +251,32 @@ function listInvoices(args) {
   const totalAmount = rows.reduce((s, r) => s + (r.amount || 0), 0);
   const totalTax = rows.reduce((s, r) => s + (r.tax_amount || 0), 0);
   console.log(`\nTotal: ${rows.length} invoices, ¥${totalAmount.toFixed(2)} (tax: ¥${totalTax.toFixed(2)})`);
+}
+
+function listPending(args) {
+  const db = getDb();
+  const limit = getArg(args, '--limit') || '20';
+  const sourceFilter = getArg(args, '--source');
+
+  const conditions = ['(amount = 0 OR amount IS NULL)', "status = 'pending'"];
+  const params = [];
+  if (sourceFilter) { conditions.push('source = ?'); params.push(sourceFilter); }
+
+  const rows = db.prepare(
+    `SELECT id, source, file_path, invoice_type, vendor_name, notes, created_at
+     FROM invoices WHERE ${conditions.join(' AND ')}
+     ORDER BY created_at DESC LIMIT ?`
+  ).all(...params, parseInt(limit));
+  db.close();
+
+  if (rows.length === 0) { console.log('No pending invoices to analyze.'); return; }
+
+  console.log(`Pending invoices (${rows.length}):\n`);
+  for (const r of rows) {
+    const src = r.source || 'unknown';
+    const note = r.notes ? ` | ${r.notes.substring(0, 60)}` : '';
+    console.log(`  #${r.id} | ${src} | ${r.file_path || 'no file'}${note} | ${r.created_at}`);
+  }
 }
 
 function getInvoice(id) {
@@ -545,6 +574,7 @@ Commands:
   init                              Initialize database
   add --json '{...}' [--file path]  Add invoice (optionally copy source file)
   list [filters]                    List invoices
+  pending [--source email] [--limit N]  List unanalyzed invoices (amount=0, status=pending)
   get <id>                          Get invoice detail
   update <id> --json '{...}'        Update invoice fields
   delete <id>                       Delete invoice
@@ -561,7 +591,7 @@ Filters:
   --month YYYY-MM      --quarter N          --year YYYY
   --type <type>        --direction <dir>    --category <cat>
   --status <s>         --reimbursement <r>  --vendor <name>
-  --limit N
+  --source <src>       --limit N
 
 Types: rail_ticket|general_invoice|ride_hailing|taxi_receipt|vat_special|other
 Directions: inbound|outbound
@@ -582,6 +612,7 @@ try {
       break;
     }
     case 'list': case 'ls': listInvoices(args); break;
+    case 'pending': case 'unanalyzed': listPending(args); break;
     case 'get': {
       if (!args[0]) { console.log('Usage: get <id>'); process.exit(1); }
       getInvoice(args[0]); break;
