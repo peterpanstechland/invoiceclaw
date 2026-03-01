@@ -55,26 +55,20 @@ Read ALL visible fields. Required per type:
 
 ### Step 4: Save file and store
 
-**CRITICAL**: You MUST always save the original invoice file. Every invoice record MUST have a file attached.
+**CRITICAL**: When the user sends an invoice image/PDF, you MUST use `add-invoice.sh` instead of calling `invoice-manager.mjs add` directly. The wrapper script automatically attaches the most recently uploaded file.
 
-When you receive an image or file from the user, OpenClaw saves it to `~/.openclaw/media/inbound/`. Before calling the CLI:
-
-1. List the received media to find the file path:
 ```bash
-ls -t ~/.openclaw/media/inbound/ | head -5
+bash /app/skills/invoice-manager/add-invoice.sh --json '{
+  "invoice_type": "taxi_receipt",
+  "direction": "inbound",
+  "amount": 15.00,
+  ...
+}'
 ```
 
-2. Use the most recent file that matches the upload. The full path will be like:
-`/home/node/.openclaw/media/inbound/file_0---<uuid>.jpg`
+**Always use `bash /app/skills/invoice-manager/add-invoice.sh`** for adding invoices when a file was uploaded. This ensures the original file is always saved.
 
-3. **Always** pass `--file` when calling `add`:
-```bash
-node invoice-manager.mjs add --json '{...}' --file /home/node/.openclaw/media/inbound/file_0---xxxx.jpg
-```
-
-4. The CLI copies the file to `invoices/YYYY/MM/` and records the path in the database.
-
-**Never call `add` without `--file` when you received an image or PDF from the user.**
+Only use `node invoice-manager.mjs add` directly for manual entries with no file attachment.
 
 ### Step 5: Assign category
 
