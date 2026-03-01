@@ -133,6 +133,7 @@
                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">File</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reimb.</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
@@ -152,6 +153,17 @@
                 <td class="px-4 py-3 text-sm font-medium text-gray-800">¥{{ fmtAmt(inv.amount) }}</td>
                 <td class="px-4 py-3 text-sm text-gray-600 max-w-[200px] truncate">{{ inv.vendor_name || '-' }}</td>
                 <td class="px-4 py-3 text-sm text-gray-500">{{ inv.invoice_date || '-' }}</td>
+                <td class="px-4 py-3 text-sm">
+                  <a v-if="inv.file_path" :href="'/api/invoices/'+inv.id+'/file'" download
+                    class="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 rounded-md text-xs font-medium hover:bg-green-100 transition-colors">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    Download
+                  </a>
+                  <button v-else @click="triggerAttach(inv)" class="inline-flex items-center gap-1 px-2 py-1 bg-gray-50 text-gray-400 rounded-md text-xs hover:bg-gray-100 hover:text-gray-600 transition-colors">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                    Attach
+                  </button>
+                </td>
                 <td class="px-4 py-3">
                   <button @click="toggleReimburse(inv)"
                     :class="['px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer transition-colors',
@@ -161,12 +173,9 @@
                 </td>
                 <td class="px-4 py-3 text-sm">
                   <div class="flex gap-1">
-                    <button @click="viewInvoice(inv)" class="p-1.5 rounded hover:bg-gray-100" title="View">
+                    <button @click="viewInvoice(inv)" class="p-1.5 rounded hover:bg-gray-100" title="View details">
                       <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                     </button>
-                    <a v-if="inv.file_path" :href="'/api/invoices/'+inv.id+'/file'" target="_blank" class="p-1.5 rounded hover:bg-gray-100" title="File">
-                      <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                    </a>
                     <button @click="deleteInv(inv)" class="p-1.5 rounded hover:bg-red-50" title="Delete">
                       <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                     </button>
@@ -174,7 +183,7 @@
                 </td>
               </tr>
               <tr v-if="invoices.length === 0">
-                <td colspan="8" class="px-4 py-12 text-center text-gray-400">No invoices found</td>
+                <td colspan="9" class="px-4 py-12 text-center text-gray-400">No invoices found</td>
               </tr>
             </tbody>
           </table>
@@ -294,14 +303,36 @@
               </div>
             </div>
           </div>
-          <div v-if="detailInv.file_path" class="mt-4">
-            <a :href="'/api/invoices/'+detailInv.id+'/file'" target="_blank"
-              class="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 transition-colors">
-              📎 View Original File
-            </a>
+          <div class="mt-4 p-4 bg-gray-50 rounded-xl">
+            <div class="text-sm font-medium text-gray-700 mb-2">Original File</div>
+            <div v-if="detailInv.file_path" class="flex flex-wrap gap-2">
+              <a :href="'/api/invoices/'+detailInv.id+'/file'" target="_blank"
+                class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:bg-gray-100 transition-colors">
+                <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                View
+              </a>
+              <a :href="'/api/invoices/'+detailInv.id+'/file'" download
+                class="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Download
+              </a>
+              <button @click="triggerAttach(detailInv)" class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:bg-gray-100 transition-colors text-gray-600">
+                Replace File
+              </button>
+            </div>
+            <div v-else class="flex items-center gap-3">
+              <span class="text-sm text-gray-400">No file attached</span>
+              <button @click="triggerAttach(detailInv)" class="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                Attach File
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      <!-- Hidden file input for attach -->
+      <input type="file" ref="attachInput" @change="handleAttach" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" class="hidden">
 
       <!-- Export -->
       <div v-if="currentView === 'export'" class="p-6 max-w-3xl mx-auto">
@@ -557,6 +588,30 @@ createApp({
     function handleFileSelect(e) { uploadForm.file = e.target.files[0]; }
     function handleDrop(e) { uploadForm.file = e.dataTransfer.files[0]; }
 
+    const attachInput = ref(null);
+    const attachingInvId = ref(null);
+
+    function triggerAttach(inv) {
+      attachingInvId.value = inv.id;
+      attachInput.value.click();
+    }
+
+    async function handleAttach(e) {
+      const file = e.target.files[0];
+      if (!file || !attachingInvId.value) return;
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const res = await fetch(`/api/invoices/${attachingInvId.value}/attach`, { method: 'POST', body: fd });
+        if (!res.ok) throw new Error((await res.json()).error);
+        const updated = await res.json();
+        if (detailInv.value && detailInv.value.id === updated.id) detailInv.value = updated;
+        fetchInvoices();
+      } catch (err) { alert('Attach failed: ' + err.message); }
+      attachingInvId.value = null;
+      e.target.value = '';
+    }
+
     async function submitUpload() {
       uploading.value = true;
       try {
@@ -659,7 +714,7 @@ createApp({
       fetchInvoices, debouncedFetch, fetchDashboard, resetFilters,
       fmtAmt, typeLabel, reimbLabel, typeBadge, reimbBadge,
       toggleReimburse, viewInvoice, deleteInv,
-      handleFileSelect, handleDrop, submitUpload,
+      handleFileSelect, handleDrop, submitUpload, attachInput, triggerAttach, handleAttach,
       generatePackage, exportUrl, saveEmail, testEmail
     };
   }

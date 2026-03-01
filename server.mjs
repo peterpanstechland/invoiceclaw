@@ -108,6 +108,23 @@ app.delete('/api/invoices/:id', (req, res) => {
   res.json({ deleted: ok });
 });
 
+// --- File attachment (for existing invoices) ---
+
+app.post('/api/invoices/:id/attach', upload.single('file'), (req, res) => {
+  const id = parseInt(req.params.id);
+  const inv = getInvoice(id);
+  if (!inv) return res.status(404).json({ error: 'Not found' });
+  if (!req.file) return res.status(400).json({ error: 'No file provided' });
+
+  if (inv.file_path) {
+    const old = resolveFilePath(inv.file_path);
+    if (old) { try { unlinkSync(old); } catch {} }
+  }
+
+  const updated = updateInvoice(id, { file_path: req.file.path });
+  res.json(updated);
+});
+
 // --- Reimbursement ---
 
 app.post('/api/invoices/:id/reimburse', (req, res) => {
