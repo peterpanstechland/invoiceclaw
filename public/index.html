@@ -35,7 +35,7 @@
         </button>
       </div>
       <div class="px-2 mt-4 flex items-center justify-between">
-        <span class="text-xs text-gray-400">v1.1</span>
+        <span class="text-xs text-gray-400">v1.2</span>
         <button @click="toggleLang" class="text-xs px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50">
           {{ locale === 'zh' ? 'EN' : '中文' }}
         </button>
@@ -66,7 +66,7 @@
             <div class="text-2xl font-bold text-orange-500">¥{{ fmtAmt(dashStats.unreimbursedTotal) }}</div>
           </div>
         </div>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
             <h3 class="font-semibold text-gray-700 mb-3">{{ t('dash.byType') }}</h3>
             <div v-for="item in dashStats.byType" :key="item.invoice_type" class="flex justify-between py-1.5 border-b border-gray-50">
@@ -80,6 +80,14 @@
               <span class="text-sm text-gray-600">{{ c.category || t('common.uncategorized') }}</span>
               <span class="text-sm font-medium">{{ c.count }} | ¥{{ fmtAmt(c.total) }}</span>
             </div>
+          </div>
+          <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+            <h3 class="font-semibold text-gray-700 mb-3">{{ t('dash.byBuyer') }}</h3>
+            <div v-for="b in dashStats.byBuyer" :key="b.buyer_name" class="flex justify-between py-1.5 border-b border-gray-50">
+              <span class="text-sm text-gray-600">{{ b.buyer_name }}</span>
+              <span class="text-sm font-medium">{{ b.count }} | ¥{{ fmtAmt(b.total) }}</span>
+            </div>
+            <div v-if="!dashStats.byBuyer || dashStats.byBuyer.length === 0" class="text-sm text-gray-400 py-2">-</div>
           </div>
         </div>
 
@@ -127,7 +135,22 @@
           </button>
         </div>
 
-        <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm mb-4 flex flex-wrap gap-3">
+        <div class="flex gap-1 mb-4 border-b border-gray-200">
+          <button @click="switchReimbTab('pending')"
+            :class="['px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
+              reimbTab==='pending' ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300']">
+            {{ t('tab.unreimbursed') }}
+            <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs" :class="reimbTab==='pending' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-500'">{{ reimbCounts.pending }}</span>
+          </button>
+          <button @click="switchReimbTab('done')"
+            :class="['px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
+              reimbTab==='done' ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300']">
+            {{ t('tab.reimbursed') }}
+            <span class="ml-1 px-1.5 py-0.5 rounded-full text-xs" :class="reimbTab==='done' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'">{{ reimbCounts.done }}</span>
+          </button>
+        </div>
+
+        <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm mb-4 flex flex-wrap gap-3 items-center">
           <input v-model="filters.search" @input="debouncedFetch" :placeholder="t('inv.search')" class="border rounded-lg px-3 py-1.5 text-sm w-40">
           <select v-model="filters.month" @change="fetchInvoices" class="border rounded-lg px-3 py-1.5 text-sm">
             <option value="">{{ t('inv.allMonths') }}</option>
@@ -142,20 +165,31 @@
             <option value="inbound">{{ t('dir.inbound') }}</option>
             <option value="outbound">{{ t('dir.outbound') }}</option>
           </select>
-          <select v-model="filters.reimbursement" @change="fetchInvoices" class="border rounded-lg px-3 py-1.5 text-sm">
-            <option value="">{{ t('inv.allStatus') }}</option>
-            <option value="unreimbursed">{{ t('reimb.unreimbursed') }}</option>
-            <option value="submitted">{{ t('reimb.submitted') }}</option>
-            <option value="reimbursed">{{ t('reimb.reimbursed') }}</option>
-            <option value="rejected">{{ t('reimb.rejected') }}</option>
-          </select>
           <button @click="resetFilters" class="text-sm text-gray-500 hover:text-gray-700">{{ t('common.reset') }}</button>
+        </div>
+
+        <div v-if="selectedIds.size > 0"
+          class="bg-brand-50 border border-brand-200 rounded-xl p-3 mb-4 flex items-center gap-3 flex-wrap">
+          <span class="text-sm font-medium text-brand-700">{{ t('batch.selected').replace('{n}', selectedIds.size) }}</span>
+          <button v-if="reimbTab==='pending'" @click="batchReimburse('reimbursed')"
+            class="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700">
+            {{ t('batch.reimburse') }}
+          </button>
+          <button v-if="reimbTab==='done'" @click="batchReimburse('unreimbursed')"
+            class="px-3 py-1.5 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600">
+            {{ t('batch.unreimburse') }}
+          </button>
+          <button @click="selectedIds.clear()" class="text-xs text-gray-500 hover:text-gray-700 ml-auto">{{ t('common.cancel') }}</button>
         </div>
 
         <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
           <table class="w-full">
             <thead class="bg-gray-50">
               <tr>
+                <th class="px-3 py-3 w-10">
+                  <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll"
+                    class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                </th>
                 <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
                 <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ t('col.type') }}</th>
                 <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{{ t('col.direction') }}</th>
@@ -169,7 +203,12 @@
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
-              <tr v-for="inv in invoices" :key="inv.id" class="hover:bg-gray-50 transition-colors">
+              <tr v-for="inv in invoices" :key="inv.id"
+                :class="['hover:bg-gray-50 transition-colors', selectedIds.has(inv.id) ? 'bg-brand-50/50' : '']">
+                <td class="px-3 py-3">
+                  <input type="checkbox" :checked="selectedIds.has(inv.id)" @change="toggleSelect(inv.id)"
+                    class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                </td>
                 <td class="px-3 py-3 text-sm text-gray-600">#{{ inv.id }}</td>
                 <td class="px-3 py-3 text-sm">
                   <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="typeBadge(inv.invoice_type)">{{ typeLabel(inv.invoice_type) }}</span>
@@ -217,7 +256,7 @@
                 </td>
               </tr>
               <tr v-if="invoices.length===0">
-                <td colspan="10" class="px-4 py-12 text-center text-gray-400">{{ t('inv.empty') }}</td>
+                <td colspan="11" class="px-4 py-12 text-center text-gray-400">{{ t('inv.empty') }}</td>
               </tr>
             </tbody>
           </table>
@@ -560,7 +599,7 @@ const I18N = {
     'nav.dashboard': '仪表盘', 'nav.invoices': '发票管理', 'nav.export': '导出打包',
     'nav.settings': '设置', 'nav.feedback': '反馈',
     'dash.total': '发票总数', 'dash.inbound': '进项总额', 'dash.outbound': '销项总额',
-    'dash.unreimbursed': '未报销', 'dash.byType': '按类型', 'dash.byCategory': '按分类',
+    'dash.unreimbursed': '未报销', 'dash.byType': '按类型', 'dash.byCategory': '按分类', 'dash.byBuyer': '按购买方',
     'col.type': '类型', 'col.direction': '方向', 'col.amount': '金额', 'col.vendor': '开票方',
     'col.buyer': '购买方', 'col.date': '日期', 'col.file': '附件', 'col.reimb': '报销', 'col.actions': '操作',
     'dir.inbound': '进项', 'dir.outbound': '销项',
@@ -604,12 +643,15 @@ const I18N = {
     'email.pollDone': '检查完成', 'email.pollFail': '检查失败',
     'dash.pendingInvoices': '待分析发票', 'dash.noPending': '没有待分析的发票',
     'dash.emailActions': '邮件发票', 'dash.source': '来源', 'dash.note': '备注',
+    'tab.unreimbursed': '未报销', 'tab.reimbursed': '已报销',
+    'batch.reimburse': '批量标记已报销', 'batch.unreimburse': '批量标记未报销',
+    'batch.selected': '已选中 {n} 项', 'batch.selectAll': '全选',
   },
   en: {
     'nav.dashboard': 'Dashboard', 'nav.invoices': 'Invoices', 'nav.export': 'Export',
     'nav.settings': 'Settings', 'nav.feedback': 'Feedback',
     'dash.total': 'Total Invoices', 'dash.inbound': 'Inbound Total', 'dash.outbound': 'Outbound Total',
-    'dash.unreimbursed': 'Unreimbursed', 'dash.byType': 'By Type', 'dash.byCategory': 'By Category',
+    'dash.unreimbursed': 'Unreimbursed', 'dash.byType': 'By Type', 'dash.byCategory': 'By Category', 'dash.byBuyer': 'By Buyer',
     'col.type': 'Type', 'col.direction': 'Direction', 'col.amount': 'Amount', 'col.vendor': 'Vendor',
     'col.buyer': 'Buyer', 'col.date': 'Date', 'col.file': 'File', 'col.reimb': 'Reimb.', 'col.actions': 'Actions',
     'dir.inbound': 'Inbound', 'dir.outbound': 'Outbound',
@@ -653,6 +695,9 @@ const I18N = {
     'email.pollDone': 'Check complete', 'email.pollFail': 'Check failed',
     'dash.pendingInvoices': 'Pending Invoices', 'dash.noPending': 'No pending invoices',
     'dash.emailActions': 'Email Invoices', 'dash.source': 'Source', 'dash.note': 'Note',
+    'tab.unreimbursed': 'Unreimbursed', 'tab.reimbursed': 'Reimbursed',
+    'batch.reimburse': 'Batch Reimburse', 'batch.unreimburse': 'Batch Unreimburse',
+    'batch.selected': '{n} selected', 'batch.selectAll': 'Select All',
   }
 };
 
@@ -704,11 +749,14 @@ createApp({
 
     const invoices = ref([]);
     const totalCount = ref(0);
-    const filters = reactive({ page:1, month:'', type:'', direction:'', reimbursement:'', search:'' });
+    const filters = reactive({ page:1, month:'', type:'', direction:'', reimbursement:'', reimbursement_not:'', search:'' });
+    const reimbTab = ref('pending');
+    const selectedIds = reactive(new Set());
+    const reimbCounts = reactive({ pending: 0, done: 0 });
     const showUpload = ref(false);
     const uploading = ref(false);
     const detailInv = ref(null);
-    const dashStats = reactive({ totalCount:0, inboundTotal:0, outboundTotal:0, unreimbursedTotal:0, byType:[], byCategory:[] });
+    const dashStats = reactive({ totalCount:0, inboundTotal:0, outboundTotal:0, unreimbursedTotal:0, byType:[], byCategory:[], byBuyer:[] });
     const uploadForm = reactive({ invoice_type:'general_invoice', direction:'inbound', amount:'', invoice_date:'', vendor_name:'', invoice_number:'', category:'', notes:'', file:null });
 
     const months = computed(() => {
@@ -751,8 +799,64 @@ createApp({
       const d = await r.json();
       invoices.value = d.invoices||[];
       totalCount.value = d.total||0;
+      selectedIds.clear();
     }
     let dt; function debouncedFetch() { clearTimeout(dt); dt=setTimeout(fetchInvoices,300); }
+
+    async function fetchReimbCounts() {
+      try {
+        const [rPending, rDone] = await Promise.all([
+          fetch('/api/invoices?reimbursement_not=reimbursed&limit=1'),
+          fetch('/api/invoices?reimbursement=reimbursed&limit=1'),
+        ]);
+        const dP = await rPending.json();
+        const dD = await rDone.json();
+        reimbCounts.pending = dP.total || 0;
+        reimbCounts.done = dD.total || 0;
+      } catch {}
+    }
+
+    function switchReimbTab(tab) {
+      reimbTab.value = tab;
+      selectedIds.clear();
+      filters.page = 1;
+      if (tab === 'pending') {
+        filters.reimbursement = '';
+        filters.reimbursement_not = 'reimbursed';
+      } else {
+        filters.reimbursement = 'reimbursed';
+        filters.reimbursement_not = '';
+      }
+      fetchInvoices();
+    }
+
+    const isAllSelected = computed(() => invoices.value.length > 0 && invoices.value.every(inv => selectedIds.has(inv.id)));
+    function toggleSelectAll() {
+      if (isAllSelected.value) {
+        selectedIds.clear();
+      } else {
+        for (const inv of invoices.value) selectedIds.add(inv.id);
+      }
+    }
+    function toggleSelect(id) {
+      if (selectedIds.has(id)) selectedIds.delete(id);
+      else selectedIds.add(id);
+    }
+
+    async function batchReimburse(status) {
+      const ids = [...selectedIds];
+      if (ids.length === 0) return;
+      try {
+        await fetch('/api/invoices/batch-reimburse', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids, status }),
+        });
+        selectedIds.clear();
+        fetchInvoices();
+        fetchReimbCounts();
+        fetchDashboard();
+      } catch (e) { alert(t('common.error') + ': ' + e.message); }
+    }
 
     async function fetchDashboard() {
       const r = await fetch('/api/stats'); const s = await r.json();
@@ -761,13 +865,20 @@ createApp({
       dashStats.totalCount=tc; dashStats.inboundTotal=it; dashStats.outboundTotal=ot;
       let ut=0; for(const r of (s.byReimbursement||[])) { if(r.reimbursement_status==='unreimbursed')ut=r.total; }
       dashStats.unreimbursedTotal=ut; dashStats.byType=s.byType||[]; dashStats.byCategory=s.byCategory||[];
+      dashStats.byBuyer=s.byBuyer||[];
     }
 
-    function resetFilters() { Object.assign(filters,{page:1,month:'',type:'',direction:'',reimbursement:'',search:''}); fetchInvoices(); }
+    function resetFilters() {
+      Object.assign(filters,{page:1,month:'',type:'',direction:'',search:''});
+      if (reimbTab.value === 'pending') { filters.reimbursement = ''; filters.reimbursement_not = 'reimbursed'; }
+      else { filters.reimbursement = 'reimbursed'; filters.reimbursement_not = ''; }
+      fetchInvoices();
+    }
 
     async function toggleReimburse(inv) {
       const ep = inv.reimbursement_status==='reimbursed'?'unreimburse':'reimburse';
-      await fetch(`/api/invoices/${inv.id}/${ep}`,{method:'POST'}); fetchInvoices(); fetchDashboard();
+      await fetch(`/api/invoices/${inv.id}/${ep}`,{method:'POST'});
+      fetchInvoices(); fetchReimbCounts(); fetchDashboard();
     }
     function viewInvoice(inv) { detailInv.value=inv; }
     async function deleteInv(inv) {
@@ -891,18 +1002,24 @@ createApp({
 
     watch(currentView, v => {
       if(v==='dashboard') { fetchDashboard(); fetchPending(); }
-      if(v==='invoices') fetchInvoices();
+      if(v==='invoices') { fetchInvoices(); fetchReimbCounts(); }
       if(v==='export') { fetchExports(); fetchBuyers(); }
       if(v==='settings') { loadEmailConfig_(); loadEmailStatus(); loadGithubConfig_(); }
       if(v==='feedback') loadFeedback();
     });
 
-    onMounted(() => { loadSettings(); fetchDashboard(); fetchInvoices(); fetchPending(); });
+    onMounted(() => {
+      loadSettings(); fetchDashboard(); fetchPending(); fetchReimbCounts();
+      filters.reimbursement_not = 'reimbursed';
+      fetchInvoices();
+    });
 
     return {
       locale, t, setLocale, toggleLang, currentView, navItems,
       typeLabelsMap, categories, typeLabel, dirLabel, reimbLabel, typeBadge, reimbBadge, fmtAmt, pendingHint,
       invoices, totalCount, filters, totalPages, months, showUpload, uploading, detailInv, dashStats, uploadForm,
+      reimbTab, selectedIds, reimbCounts, isAllSelected,
+      switchReimbTab, toggleSelectAll, toggleSelect, batchReimburse,
       fetchInvoices, debouncedFetch, fetchDashboard, resetFilters,
       toggleReimburse, viewInvoice, deleteInv,
       handleFileSelect, handleDrop, attachInput, triggerAttach, handleAttach, submitUpload,

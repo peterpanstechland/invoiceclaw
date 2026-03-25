@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 
 import {
-  initDb, listInvoices, getInvoice, createInvoice, updateInvoice, deleteInvoice, getStats, getDb
+  initDb, listInvoices, getInvoice, createInvoice, updateInvoice, deleteInvoice,
+  getStats, getDb, batchUpdateReimbursement
 } from './lib/db.mjs';
 import {
   startPoller, getPollerStatus, loadEmailConfig, saveEmailConfig, testEmailConnection, pollOnce
@@ -76,6 +77,22 @@ app.get('/api/invoices/buyers', (req, res) => {
       `SELECT DISTINCT buyer_name FROM invoices WHERE buyer_name IS NOT NULL AND buyer_name != '' ORDER BY buyer_name`
     ).all();
     res.json(rows.map(r => r.buyer_name));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/invoices/batch-reimburse', (req, res) => {
+  try {
+    const { ids, status } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids must be a non-empty array' });
+    }
+    const validStatuses = ['unreimbursed', 'submitted', 'reimbursed', 'rejected'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: `status must be one of: ${validStatuses.join(', ')}` });
+    }
+    const intIds = ids.map(id => parseInt(id)).filter(id => Number.isFinite(id));
+    const changed = batchUpdateReimbursement(intIds, status);
+    res.json({ changed });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
