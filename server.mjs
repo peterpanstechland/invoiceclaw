@@ -12,7 +12,8 @@ import { dirname } from 'node:path';
 
 import {
   initDb, listInvoices, getInvoice, createInvoice, updateInvoice, deleteInvoice,
-  getStats, getDb, batchUpdateReimbursement
+  getStats, getDb, batchUpdateReimbursement,
+  listFeedback, createFeedback, resolveFeedback, reopenFeedback, feedbackCount
 } from './lib/db.mjs';
 import {
   startPoller, getPollerStatus, loadEmailConfig, saveEmailConfig, testEmailConnection, pollOnce
@@ -486,11 +487,47 @@ async function createGithubIssue(category, message) {
 // --- Feedback ---
 const FEEDBACK_PATH = join(DATA_DIR, 'feedback.md');
 
+function importFeedbackMd() {
+  if (feedbackCount() > 0) return;
+  if (!existsSync(FEEDBACK_PATH)) return;
+  const content = readFileSync(FEEDBACK_PATH, 'utf-8');
+  const blocks = content.split(/^---$/m).filter(b => b.trim());
+  for (const block of blocks) {
+    const headerMatch = block.match(/^##\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*\|\s*(\w+)(?:\s*→\s*GitHub Issue #(\d+))?/m);
+    if (!headerMatch) continue;
+    const [, ts, category, ghNum] = headerMatch;
+    const message = block.replace(/^##[^\n]*\n+/, '').trim();
+    if (!message) continue;
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO feedback (category, message, github_issue_number, created_at) VALUES (?, ?, ?, ?)`
+    ).run(category, message, ghNum ? parseInt(ghNum) : null, ts.replace(' ', 'T') + ':00');
+  }
+  console.log(`[feedback] Imported ${feedbackCount()} entries from feedback.md`);
+}
+
+function syncFeedbackMd() {
+  const entries = listFeedback().reverse();
+  let md = '';
+  for (const e of entries) {
+    const ts = (e.created_at || '').replace('T', ' ').slice(0, 16);
+    const ghNote = e.github_issue_number ? ` → GitHub Issue #${e.github_issue_number}` : '';
+    const statusMark = e.status === 'resolved' ? ' ✅ RESOLVED' : '';
+    md += `\n## ${ts} | ${e.category}${ghNote}${statusMark}\n\n${e.message}\n\n---\n`;
+  }
+  writeFileSync(FEEDBACK_PATH, md);
+}
+
+try { importFeedbackMd(); } catch (e) {
+  console.error('[feedback] Import failed:', e.message);
+}
+
 app.get('/api/feedback', (req, res) => {
   try {
-    if (!existsSync(FEEDBACK_PATH)) return res.json({ content: '' });
-    const content = readFileSync(FEEDBACK_PATH, 'utf-8');
-    res.json({ content });
+    const entries = listFeedback();
+    let content = '';
+    if (existsSync(FEEDBACK_PATH)) content = readFileSync(FEEDBACK_PATH, 'utf-8');
+    res.json({ entries, content });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -499,7 +536,6 @@ app.post('/api/feedback', async (req, res) => {
     const { category, message } = req.body;
     if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
     const cat = category || 'general';
-    const ts = new Date().toISOString().replace('T', ' ').slice(0, 16);
 
     let ghIssue = null;
     try {
@@ -508,10 +544,32 @@ app.post('/api/feedback', async (req, res) => {
       console.error('[feedback] GitHub issue creation failed:', e.message);
     }
 
-    const ghNote = ghIssue ? ` → GitHub Issue #${ghIssue.number}` : '';
-    const entry = `\n## ${ts} | ${cat}${ghNote}\n\n${message.trim()}\n\n---\n`;
-    appendFileSync(FEEDBACK_PATH, entry);
-    res.json({ saved: true, github: ghIssue });
+    const entry = createFeedback({
+      category: cat,
+      message: message.trim(),
+      github_issue_number: ghIssue?.number || null,
+      github_issue_url: ghIssue?.url || null,
+    });
+    syncFeedbackMd();
+    res.json({ saved: true, entry, github: ghIssue });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/feedback/:id/resolve', (req, res) => {
+  try {
+    const entry = resolveFeedback(parseInt(req.params.id));
+    if (!entry) return res.status(404).json({ error: 'Not found' });
+    syncFeedbackMd();
+    res.json(entry);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/feedback/:id/reopen', (req, res) => {
+  try {
+    const entry = reopenFeedback(parseInt(req.params.id));
+    if (!entry) return res.status(404).json({ error: 'Not found' });
+    syncFeedbackMd();
+    res.json(entry);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
