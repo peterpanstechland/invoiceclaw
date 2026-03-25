@@ -493,10 +493,10 @@ function importFeedbackMd() {
   const content = readFileSync(FEEDBACK_PATH, 'utf-8');
   const blocks = content.split(/^---$/m).filter(b => b.trim());
   for (const block of blocks) {
-    const headerMatch = block.match(/^##\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*\|\s*(\w+)(?:\s*→\s*GitHub Issue #(\d+))?/m);
+    const headerMatch = block.match(/##\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*\|\s*(\w+)(?:\s*→\s*GitHub Issue #(\d+))?/);
     if (!headerMatch) continue;
-    const [, ts, category, ghNum] = headerMatch;
-    const message = block.replace(/^##[^\n]*\n+/, '').trim();
+    const [fullHeader, ts, category, ghNum] = headerMatch;
+    const message = block.slice(block.indexOf(fullHeader) + fullHeader.length).trim();
     if (!message) continue;
     const db = getDb();
     db.prepare(
