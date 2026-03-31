@@ -1,19 +1,23 @@
 /**
- * InvoiceClaw Web Service
- * Express API + static frontend + email poller
+ * InvoiceClaw Web Service — Multi-User
+ * Express API + static frontend + email poller + auth
  */
 
 import express from 'express';
 import multer from 'multer';
 import { join, extname } from 'node:path';
-import { existsSync, mkdirSync, unlinkSync, readFileSync, appendFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, unlinkSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
+import { randomBytes } from 'node:crypto';
 
 import {
   initDb, listInvoices, getInvoice, createInvoice, updateInvoice, deleteInvoice,
   getStats, getDb, batchUpdateReimbursement,
-  listFeedback, createFeedback, resolveFeedback, reopenFeedback, feedbackCount
+  listFeedback, createFeedback, resolveFeedback, reopenFeedback, feedbackCount,
+  getUserCount, hasWebUsers, createUser, getUser, getUserByUsername, listUsers, updateUser, deleteUser,
+  verifyPassword, createSession, getSessionUser, deleteSession,
+  listRoutingRules, createRoutingRule, deleteRoutingRule
 } from './lib/db.mjs';
 import {
   startPoller, getPollerStatus, loadEmailConfig, saveEmailConfig, testEmailConnection, pollOnce
@@ -26,6 +30,8 @@ const DATA_DIR = process.env.INVOICECLAW_DATA || '/data';
 const INVOICES_DIR = join(DATA_DIR, 'invoices');
 const EXPORTS_DIR = join(DATA_DIR, 'exports');
 const PORT = parseInt(process.env.PORT) || 3000;
+const COOKIE_NAME = 'invoiceclaw_session';
+const COOKIE_SECRET = process.env.INVOICECLAW_SESSION_SECRET || randomBytes(32).toString('hex');
 
 process.on('uncaughtException', (err) => {
   console.error('[server] Uncaught exception (kept alive):', err.message);
@@ -40,17 +46,160 @@ const app = express();
 app.use(express.json());
 app.use(express.static(join(__dirname, 'public')));
 
+// ---------------------------------------------------------------------------
+// Auth middleware — cookie-based sessions stored in SQLite
+// ---------------------------------------------------------------------------
+
+function extractSessionToken(req) {
+  const cookie = req.headers.cookie || '';
+  const match = cookie.split(';').map(s => s.trim()).find(s => s.startsWith(COOKIE_NAME + '='));
+  return match ? match.split('=')[1] : null;
+}
+
+function authMiddleware(req, res, next) {
+  const token = extractSessionToken(req);
+  const user = getSessionUser(token);
+  req.user = user;
+  next();
+}
+
+function requireAuth(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+  next();
+}
+
+app.use(authMiddleware);
+
+function setSessionCookie(res, token) {
+  res.setHeader('Set-Cookie',
+    `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`);
+}
+
+function clearSessionCookie(res) {
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; Max-Age=0`);
+}
+
+// ---------------------------------------------------------------------------
+// Auth routes
+// ---------------------------------------------------------------------------
+
+app.post('/api/auth/register', (req, res) => {
+  try {
+    const { username, password, displayName } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'username and password required' });
+    if (password.length < 4) return res.status(400).json({ error: 'Password too short (min 4)' });
+
+    const webUsersExist = hasWebUsers();
+    if (webUsersExist && (!req.user || req.user.role !== 'admin')) {
+      return res.status(403).json({ error: 'Registration closed. Ask an admin to create your account.' });
+    }
+
+    const role = webUsersExist ? undefined : 'admin';
+    const user = createUser({ username, password, displayName, role });
+    const token = createSession(user.id);
+    setSessionCookie(res, token);
+    res.status(201).json({ user, firstUser: !webUsersExist });
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'Username already taken' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'username and password required' });
+
+    const user = getUserByUsername(username);
+    if (!user || !verifyPassword(password, user.password_hash)) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = createSession(user.id);
+    setSessionCookie(res, token);
+    res.json({
+      user: { id: user.id, username: user.username, display_name: user.display_name, role: user.role }
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = extractSessionToken(req);
+  if (token) deleteSession(token);
+  clearSessionCookie(res);
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  if (!req.user) return res.json({ authenticated: false, needsSetup: !hasWebUsers() });
+  res.json({
+    authenticated: true,
+    user: { id: req.user.id, username: req.user.username, display_name: req.user.display_name, role: req.user.role }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// User management (admin only)
+// ---------------------------------------------------------------------------
+
+app.get('/api/users', requireAdmin, (req, res) => {
+  try { res.json(listUsers()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/users', requireAdmin, (req, res) => {
+  try {
+    const { username, password, displayName, email, role } = req.body;
+    if (!username) return res.status(400).json({ error: 'username required' });
+    const user = createUser({ username, password, displayName, email, role });
+    res.status(201).json(user);
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'Username already taken' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/users/:id', requireAdmin, (req, res) => {
+  try {
+    const user = updateUser(parseInt(req.params.id), req.body);
+    if (!user) return res.status(404).json({ error: 'Not found' });
+    res.json(user);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.delete('/api/users/:id', requireAdmin, (req, res) => {
+  const ok = deleteUser(parseInt(req.params.id));
+  res.json({ deleted: ok });
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function getUserId(req) {
+  if (!req.user) return null;
+  if (req.query.all === 'true' && req.user.role === 'admin') return undefined;
+  return req.user.id;
+}
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
       const now = new Date();
-      const dir = join(INVOICES_DIR, now.getFullYear().toString(),
+      const userId = req.user?.id;
+      const base = userId ? join(INVOICES_DIR, String(userId)) : INVOICES_DIR;
+      const dir = join(base, now.getFullYear().toString(),
         String(now.getMonth() + 1).padStart(2, '0'));
       mkdirSync(dir, { recursive: true });
       cb(null, dir);
     },
     filename: (req, file, cb) => {
-      const ext = extname(file.originalname);
       cb(null, `${Date.now()}-${file.originalname}`);
     }
   }),
@@ -61,140 +210,6 @@ const upload = multer({
     cb(null, allowed.includes(ext));
   }
 });
-
-// --- Invoice CRUD ---
-
-app.get('/api/invoices', (req, res) => {
-  try {
-    const result = listInvoices(req.query);
-    res.json(result);
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.get('/api/invoices/buyers', (req, res) => {
-  try {
-    const db = getDb();
-    const rows = db.prepare(
-      `SELECT DISTINCT buyer_name FROM invoices WHERE buyer_name IS NOT NULL AND buyer_name != '' ORDER BY buyer_name`
-    ).all();
-    res.json(rows.map(r => r.buyer_name));
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/invoices/batch-reimburse', (req, res) => {
-  try {
-    const { ids, status } = req.body;
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ error: 'ids must be a non-empty array' });
-    }
-    const validStatuses = ['unreimbursed', 'submitted', 'reimbursed', 'rejected'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: `status must be one of: ${validStatuses.join(', ')}` });
-    }
-    const intIds = ids.map(id => parseInt(id)).filter(id => Number.isFinite(id));
-    const changed = batchUpdateReimbursement(intIds, status);
-    res.json({ changed });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.get('/api/invoices/pending', (req, res) => {
-  try {
-    const db = getDb();
-    const rows = db.prepare(
-      `SELECT id, invoice_type, source, file_path, vendor_name, notes, created_at
-       FROM invoices
-       WHERE (amount = 0 OR amount IS NULL) AND status = 'pending'
-       ORDER BY created_at DESC LIMIT 50`
-    ).all();
-    res.json(rows);
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.get('/api/invoices/:id', (req, res) => {
-  const inv = getInvoice(parseInt(req.params.id));
-  if (!inv) return res.status(404).json({ error: 'Not found' });
-  res.json(inv);
-});
-
-app.post('/api/invoices', upload.single('file'), (req, res) => {
-  try {
-    const data = req.body;
-    if (typeof data.extra_fields === 'string') {
-      try { data.extra_fields = JSON.parse(data.extra_fields); } catch {}
-    }
-    if (typeof data.amount === 'string') data.amount = parseFloat(data.amount);
-    if (typeof data.tax_amount === 'string') data.tax_amount = parseFloat(data.tax_amount);
-    if (typeof data.tax_rate === 'string') data.tax_rate = parseFloat(data.tax_rate);
-
-    if (req.file) data.file_path = req.file.path;
-    if (!data.source) data.source = 'web';
-
-    const inv = createInvoice(data);
-    res.status(201).json(inv);
-  } catch (e) { res.status(400).json({ error: e.message }); }
-});
-
-app.put('/api/invoices/:id', (req, res) => {
-  try {
-    const data = req.body;
-    if (typeof data.amount === 'string') data.amount = parseFloat(data.amount);
-    if (typeof data.tax_amount === 'string') data.tax_amount = parseFloat(data.tax_amount);
-    if (typeof data.tax_rate === 'string') data.tax_rate = parseFloat(data.tax_rate);
-
-    const inv = updateInvoice(parseInt(req.params.id), data);
-    if (!inv) return res.status(404).json({ error: 'Not found or no changes' });
-    res.json(inv);
-  } catch (e) { res.status(400).json({ error: e.message }); }
-});
-
-app.delete('/api/invoices/:id', (req, res) => {
-  const inv = getInvoice(parseInt(req.params.id));
-  if (inv && inv.file_path) {
-    const resolved = resolveFilePath(inv.file_path);
-    if (resolved) { try { unlinkSync(resolved); } catch {} }
-  }
-  const ok = deleteInvoice(parseInt(req.params.id));
-  res.json({ deleted: ok });
-});
-
-// --- File attachment (for existing invoices) ---
-
-app.post('/api/invoices/:id/attach', upload.single('file'), (req, res) => {
-  const id = parseInt(req.params.id);
-  const inv = getInvoice(id);
-  if (!inv) return res.status(404).json({ error: 'Not found' });
-  if (!req.file) return res.status(400).json({ error: 'No file provided' });
-
-  if (inv.file_path) {
-    const old = resolveFilePath(inv.file_path);
-    if (old) { try { unlinkSync(old); } catch {} }
-  }
-
-  const updated = updateInvoice(id, { file_path: req.file.path });
-  res.json(updated);
-});
-
-// --- Reimbursement ---
-
-app.post('/api/invoices/:id/reimburse', (req, res) => {
-  const inv = updateInvoice(parseInt(req.params.id), {
-    reimbursement_status: 'reimbursed',
-    reimbursed_at: new Date().toISOString()
-  });
-  if (!inv) return res.status(404).json({ error: 'Not found' });
-  res.json(inv);
-});
-
-app.post('/api/invoices/:id/unreimburse', (req, res) => {
-  const inv = updateInvoice(parseInt(req.params.id), {
-    reimbursement_status: 'unreimbursed',
-    reimbursed_at: null
-  });
-  if (!inv) return res.status(404).json({ error: 'Not found' });
-  res.json(inv);
-});
-
-// --- File serving ---
 
 function resolveFilePath(dbPath) {
   if (!dbPath) return null;
@@ -210,12 +225,162 @@ function resolveFilePath(dbPath) {
       if (existsSync(resolved)) return resolved;
     }
   }
-  const basename = dbPath.split('/').pop();
   return null;
 }
 
-app.get('/api/invoices/:id/file', (req, res) => {
-  const inv = getInvoice(parseInt(req.params.id));
+// ---------------------------------------------------------------------------
+// Invoice CRUD (auth required, user-scoped)
+// ---------------------------------------------------------------------------
+
+app.get('/api/invoices', requireAuth, (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const result = listInvoices(req.query, userId);
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/invoices/buyers', requireAuth, (req, res) => {
+  try {
+    const db = getDb();
+    const userId = getUserId(req);
+    const condition = userId != null ? 'AND user_id = ?' : '';
+    const params = userId != null ? [userId] : [];
+    const rows = db.prepare(
+      `SELECT DISTINCT buyer_name FROM invoices WHERE buyer_name IS NOT NULL AND buyer_name != '' ${condition} ORDER BY buyer_name`
+    ).all(...params);
+    res.json(rows.map(r => r.buyer_name));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/invoices/batch-reimburse', requireAuth, (req, res) => {
+  try {
+    const { ids, status } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids must be a non-empty array' });
+    }
+    const validStatuses = ['unreimbursed', 'submitted', 'reimbursed', 'rejected'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: `status must be one of: ${validStatuses.join(', ')}` });
+    }
+    const intIds = ids.map(id => parseInt(id)).filter(id => Number.isFinite(id));
+    const userId = getUserId(req);
+    const changed = batchUpdateReimbursement(intIds, status, userId);
+    res.json({ changed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/invoices/pending', requireAuth, (req, res) => {
+  try {
+    const db = getDb();
+    const userId = getUserId(req);
+    const conditions = ['(amount = 0 OR amount IS NULL)', "status = 'pending'"];
+    const params = [];
+    if (userId != null) { conditions.push('user_id = ?'); params.push(userId); }
+    const rows = db.prepare(
+      `SELECT id, invoice_type, source, file_path, vendor_name, notes, created_at
+       FROM invoices WHERE ${conditions.join(' AND ')}
+       ORDER BY created_at DESC LIMIT 50`
+    ).all(...params);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/invoices/:id', requireAuth, (req, res) => {
+  const userId = getUserId(req);
+  const inv = getInvoice(parseInt(req.params.id), userId);
+  if (!inv) return res.status(404).json({ error: 'Not found' });
+  res.json(inv);
+});
+
+app.post('/api/invoices', requireAuth, upload.single('file'), (req, res) => {
+  try {
+    const data = req.body;
+    if (typeof data.extra_fields === 'string') {
+      try { data.extra_fields = JSON.parse(data.extra_fields); } catch {}
+    }
+    if (typeof data.amount === 'string') data.amount = parseFloat(data.amount);
+    if (typeof data.tax_amount === 'string') data.tax_amount = parseFloat(data.tax_amount);
+    if (typeof data.tax_rate === 'string') data.tax_rate = parseFloat(data.tax_rate);
+
+    if (req.file) data.file_path = req.file.path;
+    if (!data.source) data.source = 'web';
+
+    const inv = createInvoice(data, req.user.id);
+    res.status(201).json(inv);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put('/api/invoices/:id', requireAuth, (req, res) => {
+  try {
+    const data = req.body;
+    if (typeof data.amount === 'string') data.amount = parseFloat(data.amount);
+    if (typeof data.tax_amount === 'string') data.tax_amount = parseFloat(data.tax_amount);
+    if (typeof data.tax_rate === 'string') data.tax_rate = parseFloat(data.tax_rate);
+
+    const userId = getUserId(req);
+    const inv = updateInvoice(parseInt(req.params.id), data, userId);
+    if (!inv) return res.status(404).json({ error: 'Not found or no changes' });
+    res.json(inv);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.delete('/api/invoices/:id', requireAuth, (req, res) => {
+  const userId = getUserId(req);
+  const inv = getInvoice(parseInt(req.params.id), userId);
+  if (inv && inv.file_path) {
+    const resolved = resolveFilePath(inv.file_path);
+    if (resolved) { try { unlinkSync(resolved); } catch {} }
+  }
+  const ok = deleteInvoice(parseInt(req.params.id), userId);
+  res.json({ deleted: ok });
+});
+
+// --- File attachment ---
+
+app.post('/api/invoices/:id/attach', requireAuth, upload.single('file'), (req, res) => {
+  const id = parseInt(req.params.id);
+  const userId = getUserId(req);
+  const inv = getInvoice(id, userId);
+  if (!inv) return res.status(404).json({ error: 'Not found' });
+  if (!req.file) return res.status(400).json({ error: 'No file provided' });
+
+  if (inv.file_path) {
+    const old = resolveFilePath(inv.file_path);
+    if (old) { try { unlinkSync(old); } catch {} }
+  }
+
+  const updated = updateInvoice(id, { file_path: req.file.path }, userId);
+  res.json(updated);
+});
+
+// --- Reimbursement ---
+
+app.post('/api/invoices/:id/reimburse', requireAuth, (req, res) => {
+  const userId = getUserId(req);
+  const inv = updateInvoice(parseInt(req.params.id), {
+    reimbursement_status: 'reimbursed',
+    reimbursed_at: new Date().toISOString()
+  }, userId);
+  if (!inv) return res.status(404).json({ error: 'Not found' });
+  res.json(inv);
+});
+
+app.post('/api/invoices/:id/unreimburse', requireAuth, (req, res) => {
+  const userId = getUserId(req);
+  const inv = updateInvoice(parseInt(req.params.id), {
+    reimbursement_status: 'unreimbursed',
+    reimbursed_at: null
+  }, userId);
+  if (!inv) return res.status(404).json({ error: 'Not found' });
+  res.json(inv);
+});
+
+// --- File serving ---
+
+app.get('/api/invoices/:id/file', requireAuth, (req, res) => {
+  const userId = getUserId(req);
+  const inv = getInvoice(parseInt(req.params.id), userId);
   if (!inv || !inv.file_path) return res.status(404).json({ error: 'No file' });
   const resolved = resolveFilePath(inv.file_path);
   if (!resolved) return res.status(404).json({ error: 'File missing' });
@@ -226,9 +391,10 @@ app.get('/api/invoices/:id/file', (req, res) => {
   res.sendFile(resolved);
 });
 
-app.get('/api/invoices/:id/text', async (req, res) => {
+app.get('/api/invoices/:id/text', requireAuth, async (req, res) => {
   try {
-    const inv = getInvoice(parseInt(req.params.id));
+    const userId = getUserId(req);
+    const inv = getInvoice(parseInt(req.params.id), userId);
     if (!inv || !inv.file_path) return res.status(404).json({ error: 'No file' });
     const resolved = resolveFilePath(inv.file_path);
     if (!resolved) return res.status(404).json({ error: 'File missing' });
@@ -260,17 +426,19 @@ app.get('/api/invoices/:id/text', async (req, res) => {
 
 // --- Stats ---
 
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', requireAuth, (req, res) => {
   try {
-    res.json(getStats(req.query));
+    const userId = getUserId(req);
+    res.json(getStats(req.query, userId));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // --- Export ---
 
-app.get('/api/export', (req, res) => {
+app.get('/api/export', requireAuth, (req, res) => {
   try {
-    const result = listInvoices({ ...req.query, limit: '10000' });
+    const userId = getUserId(req);
+    const result = listInvoices({ ...req.query, limit: '10000' }, userId);
     const format = req.query.format || 'json';
 
     if (format === 'json') {
@@ -297,54 +465,58 @@ app.get('/api/export', (req, res) => {
 
 // --- Package ---
 
-app.post('/api/package', async (req, res) => {
+app.post('/api/package', requireAuth, async (req, res) => {
   try {
     const result = await packageInvoices(req.body);
     res.json(result);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.get('/api/exports', (req, res) => {
-  try {
-    res.json(listExports());
-  } catch (e) { res.status(500).json({ error: e.message }); }
+app.get('/api/exports', requireAuth, (req, res) => {
+  try { res.json(listExports()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/exports/:filename', (req, res) => {
+app.get('/api/exports/:filename', requireAuth, (req, res) => {
   const filePath = join(EXPORTS_DIR, req.params.filename);
   if (!existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   if (!req.params.filename.endsWith('.zip')) return res.status(400).json({ error: 'Invalid file' });
   res.download(filePath);
 });
 
-// --- Settings ---
+// --- Settings (per-user) ---
 const SETTINGS_PATH = join(DATA_DIR, 'settings.json');
 
-function loadSettings() {
-  try { return JSON.parse(readFileSync(SETTINGS_PATH, 'utf-8')); }
-  catch { return { language: 'zh', invoiceStorePath: '' }; }
+function loadSettings(userId) {
+  const path = userId ? join(DATA_DIR, `settings-${userId}.json`) : SETTINGS_PATH;
+  try { return JSON.parse(readFileSync(path, 'utf-8')); }
+  catch {
+    try { return JSON.parse(readFileSync(SETTINGS_PATH, 'utf-8')); }
+    catch { return { language: 'zh', invoiceStorePath: '' }; }
+  }
 }
 
-function saveSettings(s) {
-  writeFileSync(SETTINGS_PATH, JSON.stringify(s, null, 2));
+function saveSettings(settings, userId) {
+  const path = userId ? join(DATA_DIR, `settings-${userId}.json`) : SETTINGS_PATH;
+  writeFileSync(path, JSON.stringify(settings, null, 2));
 }
 
-app.get('/api/settings', (req, res) => {
-  res.json(loadSettings());
+app.get('/api/settings', requireAuth, (req, res) => {
+  res.json(loadSettings(req.user.id));
 });
 
-app.post('/api/settings', (req, res) => {
+app.post('/api/settings', requireAuth, (req, res) => {
   try {
-    const current = loadSettings();
+    const current = loadSettings(req.user.id);
     const updated = { ...current, ...req.body };
-    saveSettings(updated);
+    saveSettings(updated, req.user.id);
     res.json(updated);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // --- Email config ---
 
-app.get('/api/email/config', (req, res) => {
+app.get('/api/email/config', requireAuth, (req, res) => {
   const config = loadEmailConfig();
   if (!config) return res.json({ configured: false });
   res.json({
@@ -352,7 +524,7 @@ app.get('/api/email/config', (req, res) => {
     host: config.host,
     port: config.port,
     user: config.user,
-    pass: '••••••••',
+    pass: config.pass ? String.fromCodePoint(0x2022).repeat(8) : '',
     secure: config.secure,
     folder: config.folder,
     pollInterval: config.pollInterval,
@@ -361,14 +533,15 @@ app.get('/api/email/config', (req, res) => {
   });
 });
 
-app.post('/api/email/config', (req, res) => {
+app.post('/api/email/config', requireAdmin, (req, res) => {
   try {
     const existing = loadEmailConfig();
+    const masked = String.fromCodePoint(0x2022).repeat(8);
     const config = {
       host: req.body.host,
       port: req.body.port || 993,
       user: req.body.user,
-      pass: req.body.pass === '••••••••' ? existing?.pass : req.body.pass,
+      pass: req.body.pass === masked ? existing?.pass : req.body.pass,
       secure: req.body.secure !== false,
       folder: req.body.folder || 'INBOX',
       pollInterval: req.body.pollInterval || 15,
@@ -380,7 +553,7 @@ app.post('/api/email/config', (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.post('/api/email/test', async (req, res) => {
+app.post('/api/email/test', requireAdmin, async (req, res) => {
   try {
     const config = req.body.host ? req.body : loadEmailConfig();
     if (!config) return res.status(400).json({ error: 'No email config' });
@@ -389,11 +562,11 @@ app.post('/api/email/test', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/email/status', (req, res) => {
+app.get('/api/email/status', requireAuth, (req, res) => {
   res.json(getPollerStatus());
 });
 
-app.post('/api/email/poll', async (req, res) => {
+app.post('/api/email/poll', requireAdmin, async (req, res) => {
   try {
     const config = loadEmailConfig();
     if (!config || !config.host) return res.status(400).json({ error: 'Email not configured' });
@@ -408,6 +581,29 @@ app.post('/api/email/poll', async (req, res) => {
       res.status(500).json({ error: e.message, status });
     }
   }
+});
+
+// --- Email routing rules ---
+
+app.get('/api/email/routing-rules', requireAdmin, (req, res) => {
+  try { res.json(listRoutingRules()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/email/routing-rules', requireAdmin, (req, res) => {
+  try {
+    const { userId, matchType, matchPattern, priority } = req.body;
+    if (!userId || !matchType || !matchPattern) {
+      return res.status(400).json({ error: 'userId, matchType, matchPattern required' });
+    }
+    const rule = createRoutingRule({ userId, matchType, matchPattern, priority });
+    res.status(201).json(rule);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.delete('/api/email/routing-rules/:id', requireAdmin, (req, res) => {
+  const ok = deleteRoutingRule(parseInt(req.params.id));
+  res.json({ deleted: ok });
 });
 
 // --- GitHub config ---
@@ -431,22 +627,22 @@ function saveGithubConfig(config) {
   writeFileSync(GITHUB_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
 }
 
-app.get('/api/github/config', (req, res) => {
+app.get('/api/github/config', requireAuth, (req, res) => {
   const config = loadGithubConfig();
   if (!config) return res.json({ configured: false });
   res.json({
     configured: true,
-    token: config.token ? '••••••••' + config.token.slice(-4) : '',
+    token: config.token ? String.fromCodePoint(0x2022).repeat(8) + config.token.slice(-4) : '',
     repo: config.repo || GITHUB_REPO,
     enabled: config.enabled !== false,
   });
 });
 
-app.post('/api/github/config', (req, res) => {
+app.post('/api/github/config', requireAdmin, (req, res) => {
   try {
     const existing = loadGithubConfig();
     const config = {
-      token: (req.body.token && !req.body.token.startsWith('••••')) ? req.body.token : existing?.token,
+      token: (req.body.token && !req.body.token.startsWith(String.fromCodePoint(0x2022))) ? req.body.token : existing?.token,
       repo: req.body.repo || existing?.repo || GITHUB_REPO,
       enabled: req.body.enabled !== false,
     };
@@ -512,7 +708,7 @@ function syncFeedbackMd() {
   for (const e of entries) {
     const ts = (e.created_at || '').replace('T', ' ').slice(0, 16);
     const ghNote = e.github_issue_number ? ` → GitHub Issue #${e.github_issue_number}` : '';
-    const statusMark = e.status === 'resolved' ? ' ✅ RESOLVED' : '';
+    const statusMark = e.status === 'resolved' ? ' RESOLVED' : '';
     md += `\n## ${ts} | ${e.category}${ghNote}${statusMark}\n\n${e.message}\n\n---\n`;
   }
   writeFileSync(FEEDBACK_PATH, md);
@@ -522,7 +718,7 @@ try { importFeedbackMd(); } catch (e) {
   console.error('[feedback] Import failed:', e.message);
 }
 
-app.get('/api/feedback', (req, res) => {
+app.get('/api/feedback', requireAuth, (req, res) => {
   try {
     const entries = listFeedback();
     let content = '';
@@ -531,7 +727,7 @@ app.get('/api/feedback', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/feedback', async (req, res) => {
+app.post('/api/feedback', requireAuth, async (req, res) => {
   try {
     const { category, message } = req.body;
     if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
@@ -555,7 +751,7 @@ app.post('/api/feedback', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/feedback/:id/resolve', (req, res) => {
+app.post('/api/feedback/:id/resolve', requireAdmin, (req, res) => {
   try {
     const entry = resolveFeedback(parseInt(req.params.id));
     if (!entry) return res.status(404).json({ error: 'Not found' });
@@ -564,7 +760,7 @@ app.post('/api/feedback/:id/resolve', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/feedback/:id/reopen', (req, res) => {
+app.post('/api/feedback/:id/reopen', requireAdmin, (req, res) => {
   try {
     const entry = reopenFeedback(parseInt(req.params.id));
     if (!entry) return res.status(404).json({ error: 'Not found' });
