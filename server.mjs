@@ -140,8 +140,28 @@ app.get('/api/auth/me', (req, res) => {
   if (!req.user) return res.json({ authenticated: false, needsSetup: !hasWebUsers() });
   res.json({
     authenticated: true,
-    user: { id: req.user.id, username: req.user.username, display_name: req.user.display_name, role: req.user.role }
+    user: {
+      id: req.user.id, username: req.user.username, display_name: req.user.display_name,
+      role: req.user.role, feishu_open_id: req.user.feishu_open_id || '', email: req.user.email || ''
+    }
   });
+});
+
+app.put('/api/auth/profile', requireAuth, (req, res) => {
+  try {
+    const { display_name, feishu_open_id, email } = req.body;
+    const data = {};
+    if (display_name !== undefined) data.display_name = display_name;
+    if (feishu_open_id !== undefined) data.feishu_open_id = feishu_open_id || null;
+    if (email !== undefined) data.email = email || null;
+    const user = updateUser(req.user.id, data);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ id: user.id, username: user.username, display_name: user.display_name,
+      role: user.role, feishu_open_id: user.feishu_open_id || '', email: user.email || '' });
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'This Feishu ID is already bound to another account' });
+    res.status(400).json({ error: e.message });
+  }
 });
 
 // ---------------------------------------------------------------------------
